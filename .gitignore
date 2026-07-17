@@ -41,3 +41,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .firebase-private-key.b64.txt
+render-env-checklist.txt

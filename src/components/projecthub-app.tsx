@@ -111,21 +111,42 @@ function LoginPage() {
     setLoading(true);
     setLoginError(null);
     try {
-      let idToken = "demo";
-      if (isFirebaseConfigured) {
-        const credential = await signInWithEmailAndPassword(auth, values.email, values.password);
-        idToken = await credential.user.getIdToken();
+      if (!isFirebaseConfigured) {
+        const health = await fetch("/api/health").then((r) => r.json()).catch(() => null);
+        setLoginError({
+          title: "Configuration Firebase absente",
+          detail:
+            "Les variables NEXT_PUBLIC_FIREBASE_* et FIREBASE_* ne sont pas définies sur le serveur.",
+          action:
+            "Sur Render → Environment, ajoutez toutes les variables (voir README), puis Manual Deploy. Vérifiez ensuite /api/health : adminConfigured doit être true.",
+        });
+        toast.error("Variables d’environnement manquantes sur Render");
+        console.warn("[login] health", health);
+        return;
       }
+
+      const credential = await signInWithEmailAndPassword(auth, values.email, values.password);
+      const idToken = await credential.user.getIdToken();
       const response = await fetch("/api/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idToken }),
       });
-      const body = await response.json().catch(() => ({} as Record<string, string>));
+      const raw = await response.text();
+      let body: Record<string, unknown> = {};
+      try {
+        body = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      } catch {
+        body = { error: raw.slice(0, 200) || `HTTP ${response.status}` };
+      }
+
       if (!response.ok) {
-        const title = body.title ?? "Erreur de session";
-        const detail = body.error ?? "Impossible de créer la session serveur.";
-        const action = body.action ?? "Ouvrez /api/health pour vérifier la configuration Vercel.";
+        const title = String(body.title ?? `Erreur de session (${response.status})`);
+        const detail = String(body.error ?? "Impossible de créer la session serveur.");
+        const action = String(
+          body.action ??
+            "Sur Render → Environment, vérifiez FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL et FIREBASE_PRIVATE_KEY_BASE64, puis redéployez. Testez /api/health.",
+        );
         setLoginError({ title, detail, action });
         toast.error(`${title} — ${detail}`);
         return;
@@ -144,14 +165,14 @@ function LoginPage() {
       } else if (code === "auth/unauthorized-domain") {
         nextError = {
           title: "Domaine non autorisé",
-          detail: "Firebase refuse ce domaine Vercel.",
-          action: "Ajoutez hubmaster-theta.vercel.app dans Firebase → Authentication → Domaines autorisés.",
+          detail: "Firebase refuse ce domaine.",
+          action: "Ajoutez hubmaster.onrender.com dans Firebase → Authentication → Domaines autorisés.",
         };
       } else {
         nextError = {
           title: "Connexion impossible",
           detail: error instanceof Error ? error.message : "Erreur inconnue",
-          action: "Vérifiez votre connexion et la configuration Firebase.",
+          action: "Vérifiez Firebase Auth et les variables Render.",
         };
       }
       setLoginError(nextError);
@@ -192,7 +213,18 @@ function LoginPage() {
               <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
               <div className="space-y-2"><div className="flex justify-between"><Label htmlFor="password">Mot de passe</Label><button type="button" className="text-xs font-medium text-primary">Mot de passe oublié ?</button></div><Input id="password" type="password" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
               <Button type="submit" className="h-11 w-full" disabled={loading}>{loading ? "Connexion…" : "Se connecter"}</Button>
-              {!isFirebaseConfigured && <p className="rounded-lg bg-blue-50 p-3 text-center text-xs text-blue-700">Mode démo actif — utilisez les identifiants préremplis.</p>}
+              {!isFirebaseConfigured && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-900">
+                  <b>Config manquante.</b> Sur Render → Environment, ajoutez les variables Firebase/Supabase puis redéployez.
+                  Test : <a className="underline" href="/api/health">/api/health</a> doit afficher{" "}
+                  <code>adminConfigured: true</code>.
+                </p>
+              )}
+              {isFirebaseConfigured && (
+                <p className="rounded-lg bg-blue-50 p-3 text-center text-xs text-blue-700">
+                  Connexion Firebase active. Utilisez votre email Firebase (pas le compte démo).
+                </p>
+              )}
             </form>
           </CardContent>
         </Card>
