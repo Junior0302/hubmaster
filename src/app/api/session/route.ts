@@ -1,18 +1,24 @@
 import { NextResponse } from "next/server";
 import { getAdminAuth, isAdminConfigured } from "@/lib/firebase-admin";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const expiresIn = 60 * 60 * 24 * 5 * 1000;
 
 export async function POST(request: Request) {
-  const { idToken } = (await request.json()) as { idToken?: string };
-  if (!idToken) return NextResponse.json({ error: "Jeton manquant" }, { status: 400 });
-
   try {
+    const { idToken } = (await request.json()) as { idToken?: string };
+    if (!idToken) {
+      return NextResponse.json({ error: "Jeton manquant" }, { status: 400 });
+    }
+
     if (!isAdminConfigured()) {
       return NextResponse.json(
         {
           error:
-            "Firebase Admin non configuré sur Vercel. Ajoutez FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL et FIREBASE_PRIVATE_KEY.",
+            "Firebase Admin non configuré. Sur Vercel, ajoutez FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL et FIREBASE_PRIVATE_KEY_BASE64.",
+          hint: "Ouvrez /api/health pour vérifier les variables.",
         },
         { status: 503 },
       );
@@ -33,9 +39,8 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? error.message : "Authentification refusée";
     return NextResponse.json(
       {
-        error: message.includes("private key") || message.includes("DECODER")
-          ? "FIREBASE_PRIVATE_KEY invalide. Sur Vercel, collez la clé avec les \\n (une seule ligne)."
-          : "Authentification refusée. Vérifiez les variables Firebase Admin et le domaine autorisé.",
+        error: message,
+        hint: "Vérifiez FIREBASE_PRIVATE_KEY_BASE64 et que le domaine Vercel est autorisé dans Firebase Auth.",
       },
       { status: 500 },
     );
