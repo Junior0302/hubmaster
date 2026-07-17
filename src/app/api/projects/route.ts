@@ -14,17 +14,42 @@ export async function GET() {
   if (!isAdminConfigured()) return NextResponse.json(demoProjects);
 
   const db = getAdminDb();
-  let query: FirebaseFirestore.Query = db.collection("projects");
-  if (user.role === "user") query = query.where("memberIds", "array-contains", user.uid);
-  const snapshot = await query.orderBy("updatedAt", "desc").get();
+  let snapshot;
+  try {
+    let query: FirebaseFirestore.Query = db.collection("projects");
+    if (user.role === "user") {
+      query = query.where("memberIds", "array-contains", user.uid);
+    }
+    // Prefer ordered query; fall back if composite index is missing.
+    try {
+      snapshot = await query.orderBy("updatedAt", "desc").get();
+    } catch {
+      snapshot = await query.get();
+    }
+  } catch (error) {
+    console.error("projects GET failed", error);
+    return NextResponse.json(
+      { error: "Impossible de charger les projets." },
+      { status: 500 },
+    );
+  }
+
   const projects = await Promise.all(
     snapshot.docs.map(async (document) => {
       const data = document.data();
       const filesSnapshot = await db.collection("files").where("projectId", "==", document.id).get();
-      const files = filesSnapshot.docs.map((file) => {
-        const fileData = file.data();
-        return { id: file.id, ...fileData, createdAt: toIso(fileData.createdAt) } as ProjectFile;
-      });
+      const files = filesSnapshot.docs
+        .map((file) => {
+          const fileData = file.data();
+          return {
+            id: file.id,
+            ...fileData,
+            createdAt: toIso(fileData.createdAt),
+            // Always expose a working open URL via our API (fresh signed link).
+            url: `/api/projects/${document.id}/files/${file.id}`,
+          } as ProjectFile;
+        })
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
       return {
         id: document.id,
         ...data,
@@ -35,6 +60,8 @@ export async function GET() {
       } as Project;
     }),
   );
+
+  projects.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   return NextResponse.json(projects);
 }
 
@@ -117,7 +144,7 @@ export async function POST(request: Request) {
       continue;
     }
     try {
-      const { url, filename } = await uploadProjectFile(id, upload);
+      const { url, filename, storagePath } = await uploadProjectFile(id, upload);
       const relativePath =
         "webkitRelativePath" in upload && typeof upload.webkitRelativePath === "string"
           ? upload.webkitRelativePath
@@ -128,6 +155,7 @@ export async function POST(request: Request) {
       const fileRef = await db.collection("files").add({
         projectId: id,
         filename,
+        storagePath,
         originalName: upload.name,
         extension: upload.name.split(".").pop()?.toLowerCase() ?? "",
         size: upload.size,
@@ -140,10 +168,11 @@ export async function POST(request: Request) {
         id: fileRef.id,
         projectId: id,
         filename,
+        storagePath,
         originalName: upload.name,
         extension: upload.name.split(".").pop()?.toLowerCase() ?? "",
         size: upload.size,
-        url,
+        url: `/api/projects/${id}/files/${fileRef.id}`,
         uploadedBy: user.uid,
         folder,
         createdAt: new Date().toISOString(),

@@ -9,9 +9,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { z } from "zod";
 import {
-  AlertCircle, ArrowLeft, ArrowRight, Bell, BriefcaseBusiness, Camera, CheckCircle2, ChevronRight, Download, FileText,
+  AlertCircle, ArrowLeft, ArrowRight, Bell, BriefcaseBusiness, Camera, CheckCircle2, ChevronRight, Download, Eye, ExternalLink, FileText,
   Files, Folder, FolderOpen, HardDrive, ImageIcon, Info, LayoutDashboard, Loader2, LogOut, Menu,
-  MoreHorizontal, Plus, Search, Settings, Sparkles, Trash2, Upload, UserRound, Users, Video,
+  Plus, Search, Settings, Sparkles, Trash2, Upload, UserRound, Users, Video,
 } from "lucide-react";
 import { toast } from "sonner";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
@@ -614,35 +614,52 @@ function StatCard({
 }
 
 function ProjectCard({ project }: { project: Project }) {
+  const router = useRouter();
   return (
-    <Card className="group overflow-hidden border-border/70 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-slate-200/80">
+    <Card
+      role="link"
+      tabIndex={0}
+      className="group cursor-pointer overflow-hidden border-border/70 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg hover:shadow-slate-200/80"
+      onClick={() => router.push(`/projects/${project.id}`)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          router.push(`/projects/${project.id}`);
+        }
+      }}
+    >
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-3">
           <div className="grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary transition group-hover:scale-105">
             <FolderOpen className="size-5" />
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="rounded-xl" />}>
-              <MoreHorizontal />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem>Modifier</DropdownMenuItem>
-              <DropdownMenuItem className="text-destructive">Supprimer</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Badge variant="secondary" className="rounded-lg">
+            {project.files.length} fichier{project.files.length > 1 ? "s" : ""}
+          </Badge>
         </div>
         <div className="pt-3">
-          <Link href={`/projects/${project.id}`}>
-            <CardTitle className="text-lg font-bold group-hover:text-primary">{project.title}</CardTitle>
-          </Link>
-          <CardDescription className="mt-2 line-clamp-2 min-h-10">{project.description}</CardDescription>
+          <CardTitle className="text-lg font-bold group-hover:text-primary">{project.title}</CardTitle>
+          <CardDescription className="mt-2 line-clamp-2 min-h-10">
+            {project.description || "Aucune description"}
+          </CardDescription>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
         <div className="flex items-center justify-between border-t border-border/70 pt-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><Files className="size-3.5" />{project.files.length} fichiers</span>
+          <span>{project.category || "Projet"}</span>
           <span>{formatDate(project.updatedAt)}</span>
         </div>
+        <Button
+          type="button"
+          className="h-10 w-full rounded-xl"
+          onClick={(event) => {
+            event.stopPropagation();
+            router.push(`/projects/${project.id}`);
+          }}
+        >
+          Ouvrir le projet
+          <ArrowRight className="size-4" />
+        </Button>
       </CardContent>
     </Card>
   );
@@ -722,7 +739,54 @@ function Dashboard({ projects, currentUser, usersCount, onLogout }: { projects: 
 }
 
 function ProjectsPage({ projects, currentUser, onLogout }: { projects: Project[]; currentUser: AppUser; onLogout: () => void }) {
-  return <AppShell title="Projets" description={`${projects.length} espaces de travail`} currentUser={currentUser} onLogout={onLogout}><div className="mb-6 flex justify-end"><Button render={<Link href="/projects/new" />}><Plus />Nouveau projet</Button></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{projects.map((project) => <ProjectCard key={project.id} project={project} />)}</div></AppShell>;
+  const canCreate = currentUser.role !== "user";
+  return (
+    <AppShell
+      title="Projets"
+      description="Ouvrez un projet pour lire et télécharger ses fichiers"
+      currentUser={currentUser}
+      onLogout={onLogout}
+    >
+      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight">{projects.length} projet{projects.length > 1 ? "s" : ""}</h2>
+          <p className="text-sm text-muted-foreground">Cliquez sur une carte ou sur « Ouvrir le projet ».</p>
+        </div>
+        {canCreate ? (
+          <Button className="rounded-xl" render={<Link href="/projects/new" />}>
+            <Plus /> Nouveau projet
+          </Button>
+        ) : null}
+      </div>
+
+      {projects.length === 0 ? (
+        <Card>
+          <CardContent className="space-y-4 p-12 text-center">
+            <FolderOpen className="mx-auto size-12 text-muted-foreground" />
+            <div>
+              <p className="text-lg font-semibold">Aucun projet pour le moment</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {canCreate
+                  ? "Créez votre premier espace pour y déposer des fichiers."
+                  : "Demandez à un manager de vous ajouter à un projet."}
+              </p>
+            </div>
+            {canCreate ? (
+              <Button className="rounded-xl" render={<Link href="/projects/new" />}>
+                <Plus /> Créer un projet
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {projects.map((project) => (
+            <ProjectCard key={project.id} project={project} />
+          ))}
+        </div>
+      )}
+    </AppShell>
+  );
 }
 
 function mergeSelectedFiles(current: File[], incoming: FileList | File[]) {
@@ -930,15 +994,35 @@ function NewProjectPage({ currentUser, onLogout }: { currentUser: AppUser; onLog
 
 
 function FileIcon({ file }: { file: ProjectFile }) {
-  if (["png", "jpg", "jpeg", "svg"].includes(file.extension)) return <ImageIcon className="size-5 text-violet-600" />;
-  if (["mp4", "mov", "avi"].includes(file.extension)) return <Video className="size-5 text-rose-600" />;
+  if (["png", "jpg", "jpeg", "svg", "webp", "gif"].includes(file.extension)) {
+    return <ImageIcon className="size-5 text-violet-600" />;
+  }
+  if (["mp4", "mov", "avi", "webm"].includes(file.extension)) {
+    return <Video className="size-5 text-rose-600" />;
+  }
   return <FileText className="size-5 text-blue-600" />;
+}
+
+function canPreviewFile(file: ProjectFile) {
+  const ext = file.extension.toLowerCase();
+  return ["png", "jpg", "jpeg", "svg", "webp", "gif", "pdf"].includes(ext) && hasFileLink(file);
+}
+
+function hasFileLink(file: ProjectFile) {
+  return Boolean(file.url) && file.url !== "#";
+}
+
+function fileOpenHref(projectId: string, file: ProjectFile) {
+  if (file.url?.startsWith("/api/")) return file.url;
+  if (file.url && file.url !== "#") return file.url;
+  return `/api/projects/${projectId}/files/${file.id}`;
 }
 
 function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; currentUser: AppUser; onLogout: () => void }) {
   const queryClient = useQueryClient();
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [showUploader, setShowUploader] = useState(false);
+  const [previewFile, setPreviewFile] = useState<ProjectFile | null>(null);
   const canUpload = currentUser.role !== "user";
 
   const uploadMutation = useMutation({
@@ -988,10 +1072,12 @@ function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; 
     return (
       <AppShell title="Projet introuvable" currentUser={currentUser} onLogout={onLogout}>
         <Card>
-          <CardContent className="p-10 text-center">
-            <FolderOpen className="mx-auto mb-3 size-10 text-muted-foreground" />
-            <p>Ce projet n’existe pas ou vous n’y avez pas accès.</p>
-            <Button render={<Link href="/projects" />} className="mt-5">Voir les projets</Button>
+          <CardContent className="space-y-4 p-10 text-center">
+            <FolderOpen className="mx-auto size-10 text-muted-foreground" />
+            <p className="font-medium">Ce projet n’existe pas ou vous n’y avez pas accès.</p>
+            <Button render={<Link href="/projects" />} className="rounded-xl">
+              Retour aux projets
+            </Button>
           </CardContent>
         </Card>
       </AppShell>
@@ -1001,40 +1087,42 @@ function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; 
   return (
     <AppShell
       title={project.title}
-      description={`${project.category ?? "Projet"} · ${project.client ?? "Client interne"}`}
+      description="Consultez, ouvrez et téléchargez les fichiers du projet"
       currentUser={currentUser}
       onLogout={onLogout}
     >
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-        <div>
-          <Button variant="ghost" size="sm" render={<Link href="/projects" />} className="-ml-3 mb-2">
-            <ArrowLeft />Tous les projets
+      <div className="mb-6 flex flex-col justify-between gap-4 rounded-3xl border border-border/70 bg-white p-5 shadow-sm sm:flex-row sm:items-center">
+        <div className="min-w-0">
+          <Button variant="ghost" size="sm" render={<Link href="/projects" />} className="-ml-2 mb-2 rounded-xl">
+            <ArrowLeft /> Tous les projets
           </Button>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{project.description}</p>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Créé par <b className="text-foreground">{project.creatorName}</b> ·{" "}
-            {formatDate(project.createdAt, { dateStyle: "long" })}
+          <h2 className="truncate text-2xl font-extrabold tracking-tight">{project.title}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {project.category || "Projet"} · {project.client || "Client interne"} · {project.files.length} fichier(s)
           </p>
+          {project.description ? (
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{project.description}</p>
+          ) : null}
         </div>
         {canUpload ? (
-          <Button className="rounded-xl" onClick={() => setShowUploader((value) => !value)}>
+          <Button className="h-11 shrink-0 rounded-xl" onClick={() => setShowUploader((value) => !value)}>
             <Upload />
-            {showUploader ? "Masquer l’import" : "Ajouter des fichiers"}
+            {showUploader ? "Fermer l’import" : "Importer des fichiers"}
           </Button>
         ) : (
-          <Badge variant="secondary">Lecture seule</Badge>
+          <Badge variant="secondary" className="rounded-lg px-3 py-1.5">Lecture & téléchargement</Badge>
         )}
       </div>
 
       {showUploader && canUpload && (
-        <Card className="mb-6 border-primary/20">
+        <Card className="mb-6 border-primary/25 shadow-sm">
           <CardHeader>
             <CardTitle className="text-lg">Importer dans ce projet</CardTitle>
-            <CardDescription>Fichiers individuels ou dossier complet (Chrome / Edge).</CardDescription>
+            <CardDescription>Ajoutez des fichiers ou un dossier entier, puis validez.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <FileDropzone files={pendingFiles} onChange={setPendingFiles} disabled={uploadMutation.isPending} />
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button type="button" variant="outline" className="rounded-xl" disabled={uploadMutation.isPending} onClick={() => { setPendingFiles([]); setShowUploader(false); }}>
                 Annuler
               </Button>
@@ -1045,9 +1133,9 @@ function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; 
                 onClick={() => uploadMutation.mutate(pendingFiles)}
               >
                 {uploadMutation.isPending ? (
-                  <><Loader2 className="size-4 animate-spin" /> Import…</>
+                  <><Loader2 className="size-4 animate-spin" /> Import en cours…</>
                 ) : (
-                  <>Importer {pendingFiles.length || ""} fichier(s)</>
+                  <>Valider l’import ({pendingFiles.length})</>
                 )}
               </Button>
             </div>
@@ -1055,49 +1143,121 @@ function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; 
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Fichiers</CardTitle>
-          <CardDescription>{project.files.length} élément(s) dans ce projet</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="divide-y rounded-lg border">
-            {project.files.length ? (
-              project.files.map((file) => (
-                <div key={file.id} className="flex items-center gap-3 p-4">
-                  <div className="grid size-10 place-items-center rounded-lg bg-slate-100">
-                    <FileIcon file={file} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{file.originalName}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {file.folder ? `${file.folder} · ` : ""}
-                      {formatBytes(file.size)} · {formatDate(file.createdAt)}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    render={file.url && file.url !== "#" ? <a href={file.url} target="_blank" rel="noreferrer" /> : undefined}
-                    disabled={!file.url || file.url === "#"}
-                  >
-                    <Download className="size-4" />
-                  </Button>
+      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-lg">Fichiers du projet</CardTitle>
+            <CardDescription>
+              Cliquez sur <b>Ouvrir</b> pour lire, ou <b>Télécharger</b> pour enregistrer.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {project.files.length === 0 ? (
+              <div className="space-y-4 rounded-2xl border border-dashed p-10 text-center">
+                <Files className="mx-auto size-10 text-muted-foreground" />
+                <div>
+                  <p className="font-medium">Aucun fichier pour l’instant</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Importez un document pour commencer.</p>
                 </div>
-              ))
-            ) : (
-              <div className="space-y-3 p-10 text-center">
-                <p className="text-sm text-muted-foreground">Aucun fichier pour le moment.</p>
                 {canUpload && (
                   <Button className="rounded-xl" onClick={() => setShowUploader(true)}>
-                    <Upload />Importer des fichiers
+                    <Upload />Importer maintenant
                   </Button>
                 )}
               </div>
+            ) : (
+              <div className="space-y-3">
+                {project.files.map((file) => {
+                  const href = fileOpenHref(project.id, file);
+                  const hasUrl = hasFileLink(file) || Boolean(file.id);
+                  const previewable = canPreviewFile(file) || (hasUrl && ["png", "jpg", "jpeg", "svg", "webp", "gif", "pdf"].includes(file.extension.toLowerCase()));
+                  return (
+                    <div
+                      key={file.id}
+                      className="flex flex-col gap-3 rounded-2xl border bg-slate-50/70 p-4 sm:flex-row sm:items-center"
+                    >
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <div className="grid size-11 place-items-center rounded-xl bg-white shadow-sm">
+                          <FileIcon file={file} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold">{file.originalName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {file.folder ? `${file.folder} · ` : ""}
+                            {formatBytes(file.size)} · {formatDate(file.createdAt)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {previewable && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-xl"
+                            onClick={() => setPreviewFile({ ...file, url: href })}
+                          >
+                            <Eye className="size-4" /> Lire
+                          </Button>
+                        )}
+                        {hasUrl ? (
+                          <>
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-border bg-background px-3 text-sm font-medium hover:bg-muted"
+                            >
+                              <ExternalLink className="size-4" /> Ouvrir
+                            </a>
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                            >
+                              <Download className="size-4" /> Télécharger
+                            </a>
+                          </>
+                        ) : (
+                          <Badge variant="outline">Lien indisponible</Badge>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-lg">Aperçu</CardTitle>
+            <CardDescription>
+              {previewFile ? previewFile.originalName : "Sélectionnez « Lire » sur un fichier PDF ou image."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {previewFile && canPreviewFile(previewFile) ? (
+              <div className="overflow-hidden rounded-2xl border bg-white">
+                {previewFile.extension.toLowerCase() === "pdf" ? (
+                  <iframe title={previewFile.originalName} src={previewFile.url} className="h-[28rem] w-full" />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={previewFile.url} alt={previewFile.originalName} className="max-h-[28rem] w-full object-contain" />
+                )}
+              </div>
+            ) : (
+              <div className="grid h-64 place-items-center rounded-2xl border border-dashed text-center text-sm text-muted-foreground">
+                <div>
+                  <Eye className="mx-auto mb-2 size-8 opacity-50" />
+                  Aucun aperçu actif
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </AppShell>
   );
 }

@@ -22,6 +22,8 @@ export interface ProjectFile {
   uploadedBy: string;
   createdAt: string;
   folder?: string;
+  /** Full Supabase object path, e.g. projects/{id}/{uuid}-name.pdf */
+  storagePath?: string;
 }
 
 export interface Project {

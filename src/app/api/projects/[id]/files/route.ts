@@ -89,10 +89,11 @@ export async function POST(
         : relative || undefined;
 
     try {
-      const { url, filename } = await uploadProjectFile(projectId, upload);
+      const { url, filename, storagePath } = await uploadProjectFile(projectId, upload);
       const fileRef = await db.collection("files").add({
         projectId,
         filename,
+        storagePath,
         originalName: upload.name,
         extension: upload.name.split(".").pop()?.toLowerCase() ?? "",
         size: upload.size,
@@ -105,10 +106,11 @@ export async function POST(
         id: fileRef.id,
         projectId,
         filename,
+        storagePath,
         originalName: upload.name,
         extension: upload.name.split(".").pop()?.toLowerCase() ?? "",
         size: upload.size,
-        url,
+        url: `/api/projects/${projectId}/files/${fileRef.id}`,
         uploadedBy: user.uid,
         folder,
         createdAt: new Date().toISOString(),
