@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ProjectHub
 
-## Getting Started
+MVP de gestion de projets et de fichiers avec Next.js 15, Firebase (Auth + Firestore)
+et Supabase Storage pour les fichiers.
 
-First, run the development server:
+## Démarrage local
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- Sur votre PC : http://localhost:3000
+- Sur le même réseau Wi‑Fi : http://192.168.1.171:3000 (remplacez par votre IP locale)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Pour trouver votre IP : `ipconfig` → **Adresse IPv4** (souvent `192.168.x.x`).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Si les collègues ne peuvent pas se connecter, autorisez le port **3000** dans le pare-feu Windows.
 
-## Learn More
+## Mise en ligne (Vercel — gratuit)
 
-To learn more about Next.js, take a look at the following resources:
+1. Poussez le projet sur GitHub.
+2. Allez sur [vercel.com](https://vercel.com) → **Add New Project** → importez le repo.
+3. Ajoutez toutes les variables de `.env.local` dans **Settings → Environment Variables**.
+4. Déployez.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Après le déploiement, dans **Firebase Console → Authentication → Settings → Authorized domains**, ajoutez votre domaine Vercel (ex. `hubmaster.vercel.app`).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Pour la prod locale testée :
 
-## Deploy on Vercel
+```bash
+npm run build
+npm run start
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Puis partagez `http://VOTRE_IP:3000` sur le réseau.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Architecture
+
+| Service | Rôle |
+|---------|------|
+| Firebase Auth | Connexion email/mot de passe |
+| Firestore | Projets, utilisateurs, métadonnées fichiers |
+| Supabase Storage | Stockage des fichiers (gratuit) |
+
+Firebase Storage n’est **pas** requis (forfait Blaze).
+
+## Configuration Firebase
+
+1. Créez une app Web dans Firebase Console.
+2. Activez Authentication (email/mot de passe) et Firestore.
+3. Renseignez les variables `NEXT_PUBLIC_FIREBASE_*` et `FIREBASE_*` dans `.env.local`.
+4. Déployez les règles : `firebase deploy --only firestore:rules,firestore:indexes`.
+5. Créez `users/{uid}` avec `role: "admin"` pour le premier utilisateur.
+
+## Configuration Supabase Storage
+
+1. Créez un bucket (ex. `hubmaster datafile`) dans Supabase → Storage.
+2. Récupérez l’URL du projet et la **service_role key** (Settings → API).
+3. Ajoutez dans `.env.local` :
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `SUPABASE_BUCKET` (nom exact du bucket)
+4. Redémarrez `npm run dev`.
+
+La `service_role key` est secrète : ne jamais l’exposer côté navigateur.
+
+## Permissions
+
+- **Admin** : tout
+- **Manager** : créer/modifier projets et fichiers
+- **Utilisateur** : lecture et téléchargement
