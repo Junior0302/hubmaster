@@ -99,6 +99,7 @@ function Logo() {
 function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState<{ title: string; detail: string; action?: string } | null>(null);
   const { register, handleSubmit, formState: { errors } } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: isFirebaseConfigured
@@ -108,6 +109,7 @@ function LoginPage() {
 
   async function onSubmit(values: LoginValues) {
     setLoading(true);
+    setLoginError(null);
     try {
       let idToken = "demo";
       if (isFirebaseConfigured) {
@@ -119,21 +121,41 @@ function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idToken }),
       });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? "Session impossible");
+      const body = await response.json().catch(() => ({} as Record<string, string>));
+      if (!response.ok) {
+        const title = body.title ?? "Erreur de session";
+        const detail = body.error ?? "Impossible de créer la session serveur.";
+        const action = body.action ?? "Ouvrez /api/health pour vérifier la configuration Vercel.";
+        setLoginError({ title, detail, action });
+        toast.error(`${title} — ${detail}`);
+        return;
+      }
       router.push("/dashboard");
       router.refresh();
     } catch (error) {
       const code = typeof error === "object" && error && "code" in error ? String((error as { code: string }).code) : "";
-      const message =
-        code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found"
-          ? "Email ou mot de passe incorrect"
-          : code === "auth/unauthorized-domain"
-            ? "Ajoutez votre domaine Vercel dans Firebase → Authentication → Domaines autorisés"
-            : error instanceof Error
-              ? error.message
-              : "Connexion impossible";
-      toast.error(message);
+      let nextError: { title: string; detail: string; action?: string };
+      if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") {
+        nextError = {
+          title: "Identifiants incorrects",
+          detail: "Email ou mot de passe Firebase invalide.",
+          action: "Utilisez le compte créé dans Firebase Authentication (ex. johnjuniort40@gmail.com).",
+        };
+      } else if (code === "auth/unauthorized-domain") {
+        nextError = {
+          title: "Domaine non autorisé",
+          detail: "Firebase refuse ce domaine Vercel.",
+          action: "Ajoutez hubmaster-theta.vercel.app dans Firebase → Authentication → Domaines autorisés.",
+        };
+      } else {
+        nextError = {
+          title: "Connexion impossible",
+          detail: error instanceof Error ? error.message : "Erreur inconnue",
+          action: "Vérifiez votre connexion et la configuration Firebase.",
+        };
+      }
+      setLoginError(nextError);
+      toast.error(`${nextError.title} — ${nextError.detail}`);
     } finally {
       setLoading(false);
     }
@@ -160,6 +182,13 @@ function LoginPage() {
           </CardHeader>
           <CardContent className="p-8 pt-4">
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+              {loginError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-left text-sm text-red-800">
+                  <p className="font-semibold">{loginError.title}</p>
+                  <p className="mt-1 text-red-700">{loginError.detail}</p>
+                  {loginError.action && <p className="mt-2 text-xs text-red-600">{loginError.action}</p>}
+                </div>
+              )}
               <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
               <div className="space-y-2"><div className="flex justify-between"><Label htmlFor="password">Mot de passe</Label><button type="button" className="text-xs font-medium text-primary">Mot de passe oublié ?</button></div><Input id="password" type="password" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
               <Button type="submit" className="h-11 w-full" disabled={loading}>{loading ? "Connexion…" : "Se connecter"}</Button>
