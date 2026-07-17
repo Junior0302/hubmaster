@@ -1,7 +1,6 @@
-# ProjectHub
+# ProjectHub / Hubmaster
 
-MVP de gestion de projets et de fichiers avec Next.js 15, Firebase (Auth + Firestore)
-et Supabase Storage pour les fichiers.
+App Next.js 15 (frontend + API) avec Firebase Auth/Firestore et Supabase Storage.
 
 ## Démarrage local
 
@@ -10,60 +9,54 @@ npm install
 npm run dev
 ```
 
-- Sur votre PC : http://localhost:3000
-- Sur le même réseau Wi‑Fi : http://192.168.1.171:3000 (remplacez par votre IP locale)
+- Local : http://localhost:3000
+- Réseau : http://VOTRE_IP:3000 (`ipconfig` → IPv4)
 
-Pour trouver votre IP : `ipconfig` → **Adresse IPv4** (souvent `192.168.x.x`).
+## Mise en ligne (Render — recommandé)
 
-Si les collègues ne peuvent pas se connecter, autorisez le port **3000** dans le pare-feu Windows.
+Le frontend **et** les API tournent sur le même service :
+**https://hubmaster.onrender.com**
 
-## Mise en ligne (Vercel — gratuit)
+### Configuration Render
 
-1. Poussez le projet sur GitHub.
-2. Allez sur [vercel.com](https://vercel.com) → **Add New Project** → importez le repo.
-3. Ajoutez toutes les variables de `.env.local` dans **Settings → Environment Variables**.
-4. Déployez.
+1. Web Service → repo `Junior0302/hubmaster` → branche `main`
+2. **Runtime** : Node
+3. **Build Command** : `npm install && npm run build`
+4. **Start Command** : `npm run start`
+5. Ajoutez les variables d’environnement (Environment) :
 
-Après le déploiement, dans **Firebase Console → Authentication → Settings → Authorized domains**, ajoutez votre domaine Vercel (ex. `hubmaster.vercel.app`).
-
-Pour la prod locale testée :
-
-```bash
-npm run build
-npm run start
+```
+NEXT_PUBLIC_FIREBASE_API_KEY
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+NEXT_PUBLIC_FIREBASE_PROJECT_ID
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+NEXT_PUBLIC_FIREBASE_APP_ID
+FIREBASE_PROJECT_ID
+FIREBASE_CLIENT_EMAIL
+FIREBASE_PRIVATE_KEY_BASE64
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_BUCKET=hubmaster datafile
+SUPABASE_STORAGE_PUBLIC=false
 ```
 
-Puis partagez `http://VOTRE_IP:3000` sur le réseau.
+Sur Render, préférez `FIREBASE_PRIVATE_KEY_BASE64` (fichier local `.firebase-private-key.b64.txt`).
+
+6. Après déploiement, Firebase → **Authentication** → **Domaines autorisés** → ajoutez :
+   - `hubmaster.onrender.com`
+
+7. Test : https://hubmaster.onrender.com/api/health
+
+> Instance Free : se met en veille après inactivité (~50 s au réveil).
 
 ## Architecture
 
 | Service | Rôle |
 |---------|------|
-| Firebase Auth | Connexion email/mot de passe |
-| Firestore | Projets, utilisateurs, métadonnées fichiers |
-| Supabase Storage | Stockage des fichiers (gratuit) |
-
-Firebase Storage n’est **pas** requis (forfait Blaze).
-
-## Configuration Firebase
-
-1. Créez une app Web dans Firebase Console.
-2. Activez Authentication (email/mot de passe) et Firestore.
-3. Renseignez les variables `NEXT_PUBLIC_FIREBASE_*` et `FIREBASE_*` dans `.env.local`.
-4. Déployez les règles : `firebase deploy --only firestore:rules,firestore:indexes`.
-5. Créez `users/{uid}` avec `role: "admin"` pour le premier utilisateur.
-
-## Configuration Supabase Storage
-
-1. Créez un bucket (ex. `hubmaster datafile`) dans Supabase → Storage.
-2. Récupérez l’URL du projet et la **service_role key** (Settings → API).
-3. Ajoutez dans `.env.local` :
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-   - `SUPABASE_BUCKET` (nom exact du bucket)
-4. Redémarrez `npm run dev`.
-
-La `service_role key` est secrète : ne jamais l’exposer côté navigateur.
+| Render (Next.js) | UI + API Routes |
+| Firebase Auth | Connexion |
+| Firestore | Projets, utilisateurs, métadonnées |
+| Supabase Storage | Fichiers |
 
 ## Permissions
 
