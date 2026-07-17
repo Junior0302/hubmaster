@@ -47,7 +47,15 @@ Sur Render, préférez `FIREBASE_PRIVATE_KEY_BASE64` (fichier local `.firebase-p
 
 7. Test : https://hubmaster.onrender.com/api/health
 
-> Instance Free : se met en veille après inactivité (~50 s au réveil).
+### Pourquoi « APPLICATION LOADING » apparaît ?
+
+Sur le **plan Free**, Render **éteint** le serveur après ~15 min d’inactivité.
+Au prochain clic, Render affiche son écran noir de démarrage (30–60 s). **Ce n’est pas un bug Hubmaster** : c’est l’hébergeur.
+
+Solutions :
+1. **Recommandé** : passer le service Render en **Starter** (toujours allumé).
+2. Keep-alive automatique : workflow GitHub Actions `.github/workflows/keep-alive.yml` (ping `/api/health` toutes les 10 min).
+3. Ou un moniteur gratuit (UptimeRobot) pointant vers `https://hubmaster.onrender.com/api/health`.
 
 ## Architecture
 

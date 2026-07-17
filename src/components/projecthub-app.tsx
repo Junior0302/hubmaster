@@ -9,12 +9,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { z } from "zod";
 import {
-  ArrowLeft, ArrowRight, Bell, BriefcaseBusiness, Camera, ChevronRight, Download, FileText,
-  Files, FolderOpen, HardDrive, ImageIcon, LayoutDashboard, LogOut, Menu,
+  AlertCircle, ArrowLeft, ArrowRight, Bell, BriefcaseBusiness, Camera, CheckCircle2, ChevronRight, Download, FileText,
+  Files, FolderOpen, HardDrive, ImageIcon, Info, LayoutDashboard, Loader2, LogOut, Menu,
   MoreHorizontal, Plus, Search, Settings, Sparkles, Trash2, Upload, UserRound, Users, Video,
 } from "lucide-react";
 import { toast } from "sonner";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
+import { explainClientAuthError } from "@/lib/firebase-errors";
 import { formatDate } from "@/lib/dates";
 import { roleLabel } from "@/lib/roles";
 import type { AppUser, Project, ProjectFile, Role } from "@/types";
@@ -132,6 +133,52 @@ const nav = [
   { href: "/users", label: "Utilisateurs", icon: Users },
 ];
 
+function UserAlert({
+  tone = "error",
+  title,
+  detail,
+  action,
+}: {
+  tone?: "error" | "warning" | "info" | "success";
+  title: string;
+  detail?: string;
+  action?: string;
+}) {
+  const styles = {
+    error: "border-red-200 bg-red-50 text-red-900",
+    warning: "border-amber-200 bg-amber-50 text-amber-950",
+    info: "border-sky-200 bg-sky-50 text-sky-950",
+    success: "border-emerald-200 bg-emerald-50 text-emerald-950",
+  } as const;
+  const Icon = tone === "success" ? CheckCircle2 : tone === "info" ? Info : AlertCircle;
+  return (
+    <div className={`rounded-2xl border p-4 text-left text-sm ${styles[tone]}`} role="alert">
+      <div className="flex gap-3">
+        <Icon className="mt-0.5 size-5 shrink-0 opacity-80" />
+        <div className="min-w-0 space-y-1">
+          <p className="font-semibold">{title}</p>
+          {detail && <p className="leading-6 opacity-90">{detail}</p>}
+          {action && <p className="pt-1 text-xs font-medium opacity-80">{action}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppLoading({ label = "Chargement de votre espace…" }: { label?: string }) {
+  return (
+    <div className="grid min-h-screen place-items-center hub-surface p-6">
+      <div className="w-full max-w-sm rounded-3xl border border-border/70 bg-white p-8 text-center shadow-xl shadow-slate-200/50">
+        <div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">
+          <Loader2 className="size-7 animate-spin" />
+        </div>
+        <p className="text-base font-semibold tracking-tight">Hubmaster</p>
+        <p className="mt-2 text-sm text-muted-foreground">{label}</p>
+      </div>
+    </div>
+  );
+}
+
 function Logo({ light = false }: { light?: boolean }) {
   return (
     <Link href="/dashboard" className={`flex items-center gap-2.5 font-extrabold tracking-tight ${light ? "text-white" : "text-foreground"}`}>
@@ -215,6 +262,7 @@ function AuthShell({
 function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [wakingUp, setWakingUp] = useState(false);
   const [loginError, setLoginError] = useState<{ title: string; detail: string; action?: string } | null>(null);
   const { register, handleSubmit, formState: { errors } } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
@@ -225,19 +273,17 @@ function LoginPage() {
 
   async function onSubmit(values: LoginValues) {
     setLoading(true);
+    setWakingUp(false);
     setLoginError(null);
+    const wakeTimer = window.setTimeout(() => setWakingUp(true), 4000);
     try {
       if (!isFirebaseConfigured) {
-        const health = await fetch("/api/health").then((r) => r.json()).catch(() => null);
         setLoginError({
-          title: "Configuration Firebase absente",
-          detail:
-            "Les variables NEXT_PUBLIC_FIREBASE_* et FIREBASE_* ne sont pas définies sur le serveur.",
-          action:
-            "Sur Render → Environment, ajoutez toutes les variables (voir README), puis Manual Deploy. Vérifiez ensuite /api/health : adminConfigured doit être true.",
+          title: "Configuration manquante",
+          detail: "Le serveur n’a pas encore les variables Firebase nécessaires.",
+          action: "Sur Render → Environment, ajoutez les variables, puis redéployez. Vérifiez /api/health.",
         });
-        toast.error("Variables d’environnement manquantes sur Render");
-        console.warn("[login] health", health);
+        toast.error("Configuration serveur incomplète");
         return;
       }
 
@@ -246,43 +292,25 @@ function LoginPage() {
       const session = await createServerSession(idToken);
 
       if (!session.ok) {
-        const title = String(session.body.title ?? `Erreur de session (${session.status})`);
-        const detail = String(session.body.error ?? "Impossible de créer la session serveur.");
+        const title = String(session.body.title ?? "Connexion impossible");
+        const detail = String(session.body.error ?? "Impossible de créer la session.");
         const action = String(
           session.body.action ??
-            "Sur Render → Environment, vérifiez les variables Firebase, puis Manual Deploy. Testez /api/health.",
+            "Réessayez dans quelques secondes. Si ça continue, le serveur est peut‑être en démarrage.",
         );
         setLoginError({ title, detail, action });
-        toast.error(`${title} — ${detail}`);
+        toast.error(title);
         return;
       }
       router.push("/dashboard");
       router.refresh();
     } catch (error) {
-      const code = typeof error === "object" && error && "code" in error ? String((error as { code: string }).code) : "";
-      let nextError: { title: string; detail: string; action?: string };
-      if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") {
-        nextError = {
-          title: "Identifiants incorrects",
-          detail: "Email ou mot de passe invalide.",
-          action: "Vérifiez vos identifiants ou créez un compte.",
-        };
-      } else if (code === "auth/unauthorized-domain") {
-        nextError = {
-          title: "Domaine non autorisé",
-          detail: "Firebase refuse ce domaine.",
-          action: "Ajoutez hubmaster.onrender.com dans Firebase → Authentication → Domaines autorisés.",
-        };
-      } else {
-        nextError = {
-          title: "Connexion impossible",
-          detail: error instanceof Error ? error.message : "Erreur inconnue",
-          action: "Vérifiez Firebase Auth et les variables Render.",
-        };
-      }
+      const nextError = explainClientAuthError(error);
       setLoginError(nextError);
-      toast.error(`${nextError.title} — ${nextError.detail}`);
+      toast.error(nextError.title);
     } finally {
+      window.clearTimeout(wakeTimer);
+      setWakingUp(false);
       setLoading(false);
     }
   }
@@ -294,12 +322,15 @@ function LoginPage() {
       description="Connectez-vous pour accéder à votre espace Hubmaster."
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        {wakingUp && (
+          <UserAlert
+            tone="info"
+            title="Démarrage du serveur…"
+            detail="Le service gratuit Render se réveille. Patientez encore quelques secondes, ne quittez pas la page."
+          />
+        )}
         {loginError && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-left text-sm text-red-800">
-            <p className="font-semibold">{loginError.title}</p>
-            <p className="mt-1 text-red-700">{loginError.detail}</p>
-            {loginError.action && <p className="mt-2 text-xs text-red-600">{loginError.action}</p>}
-          </div>
+          <UserAlert tone="error" title={loginError.title} detail={loginError.detail} action={loginError.action} />
         )}
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
@@ -315,21 +346,32 @@ function LoginPage() {
           {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
         </div>
         <Button type="submit" className="h-11 w-full rounded-xl text-base" disabled={loading}>
-          {loading ? "Connexion…" : "Se connecter"}
+          {loading ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              {wakingUp ? "Démarrage…" : "Connexion…"}
+            </>
+          ) : (
+            "Se connecter"
+          )}
         </Button>
         <Button type="button" variant="outline" className="h-11 w-full rounded-xl text-base" render={<Link href="/signup" />}>
           Créer un compte
           <ArrowRight className="size-4" />
         </Button>
         {!isFirebaseConfigured && (
-          <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-900">
-            <b>Config manquante.</b> Ajoutez les variables Firebase/Supabase sur Render puis redéployez.
-          </p>
+          <UserAlert
+            tone="warning"
+            title="Configuration manquante"
+            detail="Les variables Firebase/Supabase ne sont pas détectées."
+            action="Ajoutez-les sur Render, puis redéployez."
+          />
         )}
       </form>
     </AuthShell>
   );
 }
+
 
 function SignupPage() {
   const router = useRouter();
@@ -386,7 +428,9 @@ function SignupPage() {
       router.push("/dashboard");
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Inscription impossible");
+      const mapped = explainClientAuthError(err);
+      setError(`${mapped.title} — ${mapped.detail}`);
+      toast.error(mapped.title);
     } finally {
       setLoading(false);
     }
@@ -399,7 +443,7 @@ function SignupPage() {
       description="Ajoutez votre photo, vos infos, et rejoignez Hubmaster."
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-        {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
+        {error && <UserAlert tone="error" title="Inscription impossible" detail={error} action="Vérifiez vos infos ou réessayez dans quelques secondes si le serveur démarre." />}
         <div className="flex items-center gap-4 rounded-2xl border border-dashed border-border bg-muted/40 p-3">
           <label className="group relative cursor-pointer">
             <span className="grid size-20 place-items-center overflow-hidden rounded-2xl border bg-white shadow-inner">
@@ -971,43 +1015,36 @@ export function ProjectHubApp({ slug }: { slug: string[] }) {
   if (route === "signup") return <SignupPage />;
 
   if (userLoading) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-slate-50">
-        <div className="text-center">
-          <FolderOpen className="mx-auto mb-3 size-8 animate-pulse text-primary" />
-          <p className="text-sm text-muted-foreground">Chargement de votre espace…</p>
-        </div>
-      </div>
-    );
+    return <AppLoading label="Chargement de votre espace…" />;
   }
 
   if (userError || !currentUser) {
     return (
-      <div className="grid min-h-screen place-items-center bg-slate-50 p-6">
-        <div className="max-w-md text-center">
-          <FolderOpen className="mx-auto mb-3 size-8 text-primary" />
-          <p className="text-sm text-muted-foreground">
-            {userQueryError?.message === "SESSION_EXPIRED"
-              ? "Session expirée. Redirection vers la connexion…"
-              : "Impossible de charger votre profil. Vérifiez la configuration Firebase sur Render."}
-          </p>
-          <Button className="mt-4" render={<Link href="/login" />}>
-            Se connecter
-          </Button>
-        </div>
+      <div className="grid min-h-screen place-items-center hub-surface p-6">
+        <Card className="w-full max-w-md border-border/70 shadow-xl">
+          <CardContent className="space-y-4 p-8 text-center">
+            <FolderOpen className="mx-auto size-10 text-primary" />
+            <UserAlert
+              tone="warning"
+              title={userQueryError?.message === "SESSION_EXPIRED" ? "Session expirée" : "Profil inaccessible"}
+              detail={
+                userQueryError?.message === "SESSION_EXPIRED"
+                  ? "Votre session a expiré. Reconnectez-vous pour continuer."
+                  : "Impossible de charger votre profil. Le serveur peut être en démarrage ou mal configuré."
+              }
+              action="Si la page Render « Application loading » apparaît, attendez 30–60 s puis réessayez."
+            />
+            <Button className="w-full rounded-xl" render={<Link href="/login" />}>
+              Se connecter
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   if (projectsLoading) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-slate-50">
-        <div className="text-center">
-          <FolderOpen className="mx-auto mb-3 size-8 animate-pulse text-primary" />
-          <p className="text-sm text-muted-foreground">Chargement des projets…</p>
-        </div>
-      </div>
-    );
+    return <AppLoading label="Chargement de vos projets…" />;
   }
 
   if (route === "dashboard") return <Dashboard projects={projects} currentUser={currentUser} usersCount={currentUser.role === "user" ? undefined : users.length} onLogout={handleLogout} />;

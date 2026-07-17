@@ -1,0 +1,26 @@
+name: Keep Hubmaster awake
+
+# Ping Render toutes les 10 min pour limiter les cold starts du plan Free.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/health
+        run: |
+          set -e
+          for i in 1 2 3; do
+            if curl -fsS --max-time 90 "https://hubmaster.onrender.com/api/health"; then
+              echo ""
+              echo "OK"
+              exit 0
+            fi
+            echo "Tentative $i échouée, nouvel essai…"
+            sleep 15
+          done
+          echo "Le service n’a pas répondu (cold start possible)."
+          exit 0
