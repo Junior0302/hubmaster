@@ -19,7 +19,7 @@ export async function uploadProjectFile(
 ): Promise<{ url: string; filename: string }> {
   const supabase = getSupabaseAdmin();
   const bucket = process.env.SUPABASE_BUCKET!;
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-") || "fichier";
   const storagePath = `projects/${projectId}/${crypto.randomUUID()}-${safeName}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
@@ -27,7 +27,9 @@ export async function uploadProjectFile(
     contentType: file.type || "application/octet-stream",
     upsert: false,
   });
-  if (error) throw error;
+  if (error) {
+    throw new Error(error.message || "Échec de l’upload Supabase");
+  }
 
   return resolveStorageUrl(supabase, bucket, storagePath, safeName);
 }

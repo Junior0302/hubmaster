@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +10,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { z } from "zod";
 import {
   AlertCircle, ArrowLeft, ArrowRight, Bell, BriefcaseBusiness, Camera, CheckCircle2, ChevronRight, Download, FileText,
-  Files, FolderOpen, HardDrive, ImageIcon, Info, LayoutDashboard, Loader2, LogOut, Menu,
+  Files, Folder, FolderOpen, HardDrive, ImageIcon, Info, LayoutDashboard, Loader2, LogOut, Menu,
   MoreHorizontal, Plus, Search, Settings, Sparkles, Trash2, Upload, UserRound, Users, Video,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -725,43 +725,209 @@ function ProjectsPage({ projects, currentUser, onLogout }: { projects: Project[]
   return <AppShell title="Projets" description={`${projects.length} espaces de travail`} currentUser={currentUser} onLogout={onLogout}><div className="mb-6 flex justify-end"><Button render={<Link href="/projects/new" />}><Plus />Nouveau projet</Button></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{projects.map((project) => <ProjectCard key={project.id} project={project} />)}</div></AppShell>;
 }
 
+function mergeSelectedFiles(current: File[], incoming: FileList | File[]) {
+  const next = [...current];
+  const seen = new Set(current.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+  for (const file of Array.from(incoming)) {
+    if (!file.size) continue;
+    const key = `${file.name}:${file.size}:${file.lastModified}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(file);
+  }
+  return next;
+}
+
+function FileDropzone({
+  files,
+  onChange,
+  disabled,
+}: {
+  files: File[];
+  onChange: (files: File[]) => void;
+  disabled?: boolean;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+
+  function addFiles(list: FileList | File[] | null) {
+    if (!list || disabled) return;
+    onChange(mergeSelectedFiles(files, list));
+  }
+
+  return (
+    <div className="space-y-3">
+      <div
+        className={`rounded-2xl border-2 border-dashed p-6 text-center transition ${
+          dragging ? "border-primary bg-primary/5" : "border-border bg-slate-50 hover:border-primary/60"
+        } ${disabled ? "opacity-60" : ""}`}
+        onDragEnter={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={(event) => {
+          event.preventDefault();
+          setDragging(false);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragging(false);
+          addFiles(event.dataTransfer.files);
+        }}
+      >
+        <Upload className="mx-auto mb-3 size-7 text-primary" />
+        <p className="text-sm font-semibold">Glissez des fichiers ou un dossier ici</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {files.length
+            ? `${files.length} élément(s) prêt(s) à importer`
+            : "PDF, images, vidéos, archives · max 50 Mo / fichier"}
+        </p>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <Button type="button" variant="outline" className="rounded-xl" disabled={disabled} onClick={() => fileInputRef.current?.click()}>
+            <Files className="size-4" /> Choisir des fichiers
+          </Button>
+          <Button type="button" variant="outline" className="rounded-xl" disabled={disabled} onClick={() => folderInputRef.current?.click()}>
+            <Folder className="size-4" /> Importer un dossier
+          </Button>
+          {files.length > 0 && (
+            <Button type="button" variant="ghost" className="rounded-xl" disabled={disabled} onClick={() => onChange([])}>
+              Vider la sélection
+            </Button>
+          )}
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          disabled={disabled}
+          onChange={(event) => {
+            addFiles(event.target.files);
+            event.currentTarget.value = "";
+          }}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          disabled={disabled}
+          // @ts-expect-error webkitdirectory is supported in Chromium browsers
+          webkitdirectory=""
+          onChange={(event) => {
+            addFiles(event.target.files);
+            event.currentTarget.value = "";
+          }}
+        />
+      </div>
+      {files.length > 0 && (
+        <div className="max-h-40 space-y-1 overflow-y-auto rounded-xl border bg-white p-3 text-left">
+          {files.slice(0, 30).map((file) => (
+            <div key={`${file.name}-${file.size}-${file.lastModified}`} className="flex items-center justify-between gap-2 text-xs">
+              <span className="truncate font-medium">
+                {"webkitRelativePath" in file && file.webkitRelativePath
+                  ? String(file.webkitRelativePath)
+                  : file.name}
+              </span>
+              <span className="shrink-0 text-muted-foreground">{formatBytes(file.size)}</span>
+            </div>
+          ))}
+          {files.length > 30 && (
+            <p className="text-xs text-muted-foreground">+{files.length - 30} autres…</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NewProjectPage({ currentUser, onLogout }: { currentUser: AppUser; onLogout: () => void }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [files, setFiles] = useState<File[]>([]);
-  const { register, handleSubmit, setValue, formState: { errors } } = useForm<ProjectValues>({ resolver: zodResolver(projectSchema), defaultValues: { title: "", description: "", category: "", client: "" } });
+  const canUpload = currentUser.role !== "user";
+  const { register, handleSubmit, setValue, formState: { errors } } = useForm<ProjectValues>({
+    resolver: zodResolver(projectSchema),
+    defaultValues: { title: "", description: "", category: "", client: "" },
+  });
   const mutation = useMutation({
     mutationFn: async (values: ProjectValues) => {
       const body = new FormData();
       Object.entries(values).forEach(([key, value]) => body.append(key, value));
       files.forEach((file) => body.append("files", file));
       const response = await fetch("/api/projects", { method: "POST", body });
-      if (!response.ok) throw new Error("La création a échoué");
-      return response.json() as Promise<Project>;
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(payload.error ?? "La création a échoué"));
+      return payload as Project;
     },
     onSuccess: (project) => {
       queryClient.setQueryData<Project[]>(["projects"], (current = []) => [project, ...current]);
-      toast.success("Projet créé");
+      toast.success(
+        project.files?.length
+          ? `Projet créé avec ${project.files.length} fichier(s)`
+          : "Projet créé",
+      );
       router.push(`/projects/${project.id}`);
     },
     onError: (error) => toast.error(error.message),
   });
+
   return (
     <AppShell title="Nouveau projet" description="Créez un espace et ajoutez vos premiers fichiers." currentUser={currentUser} onLogout={onLogout}>
-      <div className="mx-auto max-w-3xl"><Button variant="ghost" render={<Link href="/projects" />} className="mb-4"><ArrowLeft />Retour</Button>
-        <Card><CardHeader><CardTitle>Informations du projet</CardTitle><CardDescription>Vous pourrez modifier ces informations plus tard.</CardDescription></CardHeader><CardContent>
-          <form onSubmit={handleSubmit((values) => mutation.mutate(values))} className="space-y-6">
-            <div className="space-y-2"><Label>Nom du projet *</Label><Input placeholder="Ex. Refonte du site" {...register("title")} />{errors.title && <p className="text-xs text-destructive">{errors.title.message}</p>}</div>
-            <div className="space-y-2"><Label>Description</Label><Textarea rows={4} placeholder="Décrivez l’objectif du projet…" {...register("description")} /></div>
-            <div className="grid gap-5 sm:grid-cols-2"><div className="space-y-2"><Label>Catégorie</Label><Select onValueChange={(value) => setValue("category", String(value))}><SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger><SelectContent><SelectItem value="Design">Design</SelectItem><SelectItem value="Marketing">Marketing</SelectItem><SelectItem value="Application">Application</SelectItem><SelectItem value="Autre">Autre</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Client</Label><Input placeholder="Nom du client" {...register("client")} /></div></div>
-            <div className="space-y-2"><Label>Importer des fichiers</Label><label className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed bg-slate-50 text-center transition hover:border-primary hover:bg-blue-50/50"><Upload className="mb-3 size-6 text-primary" /><span className="text-sm font-medium">Glissez vos fichiers ou cliquez ici</span><span className="mt-1 text-xs text-muted-foreground">{files.length ? `${files.length} fichier(s) sélectionné(s)` : "PDF, images, vidéos et archives"}</span><input type="file" multiple className="hidden" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} /></label></div>
-            <div className="flex justify-end gap-3"><Button type="button" variant="outline" onClick={() => router.back()}>Annuler</Button><Button type="submit" disabled={mutation.isPending}>{mutation.isPending ? "Création…" : "Créer le projet"}</Button></div>
-          </form>
-        </CardContent></Card>
+      <div className="mx-auto max-w-3xl">
+        <Button variant="ghost" render={<Link href="/projects" />} className="mb-4"><ArrowLeft />Retour</Button>
+        <Card>
+          <CardHeader>
+            <CardTitle>Informations du projet</CardTitle>
+            <CardDescription>Vous pourrez modifier ces informations plus tard.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit((values) => mutation.mutate(values))} className="space-y-6">
+              <div className="space-y-2"><Label>Nom du projet *</Label><Input placeholder="Ex. Refonte du site" {...register("title")} />{errors.title && <p className="text-xs text-destructive">{errors.title.message}</p>}</div>
+              <div className="space-y-2"><Label>Description</Label><Textarea rows={4} placeholder="Décrivez l’objectif du projet…" {...register("description")} /></div>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Catégorie</Label>
+                  <Select onValueChange={(value) => setValue("category", String(value))}>
+                    <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Design">Design</SelectItem>
+                      <SelectItem value="Marketing">Marketing</SelectItem>
+                      <SelectItem value="Application">Application</SelectItem>
+                      <SelectItem value="Autre">Autre</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2"><Label>Client</Label><Input placeholder="Nom du client" {...register("client")} /></div>
+              </div>
+              <div className="space-y-2">
+                <Label>Importer des fichiers / dossier</Label>
+                {canUpload ? (
+                  <FileDropzone files={files} onChange={setFiles} disabled={mutation.isPending} />
+                ) : (
+                  <UserAlert
+                    tone="warning"
+                    title="Import réservé"
+                    detail="Votre rôle Utilisateur ne permet pas d’importer des fichiers. Demandez à un manager ou admin."
+                  />
+                )}
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button type="button" variant="outline" onClick={() => router.back()}>Annuler</Button>
+                <Button type="submit" disabled={mutation.isPending}>
+                  {mutation.isPending ? (<><Loader2 className="size-4 animate-spin" /> Création…</>) : "Créer le projet"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
     </AppShell>
   );
 }
+
 
 function FileIcon({ file }: { file: ProjectFile }) {
   if (["png", "jpg", "jpeg", "svg"].includes(file.extension)) return <ImageIcon className="size-5 text-violet-600" />;
@@ -770,14 +936,168 @@ function FileIcon({ file }: { file: ProjectFile }) {
 }
 
 function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; currentUser: AppUser; onLogout: () => void }) {
-  if (!project) return <AppShell title="Projet introuvable" currentUser={currentUser} onLogout={onLogout}><Card><CardContent className="p-10 text-center"><FolderOpen className="mx-auto mb-3 size-10 text-muted-foreground" /><p>Ce projet n’existe pas ou vous n’y avez pas accès.</p><Button render={<Link href="/projects" />} className="mt-5">Voir les projets</Button></CardContent></Card></AppShell>;
+  const queryClient = useQueryClient();
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [showUploader, setShowUploader] = useState(false);
+  const canUpload = currentUser.role !== "user";
+
+  const uploadMutation = useMutation({
+    mutationFn: async (filesToUpload: File[]) => {
+      if (!project) throw new Error("Projet introuvable");
+      const body = new FormData();
+      filesToUpload.forEach((file) => {
+        body.append("files", file);
+        const relative =
+          "webkitRelativePath" in file && typeof file.webkitRelativePath === "string"
+            ? file.webkitRelativePath
+            : "";
+        body.append("folders", relative);
+      });
+      const response = await fetch(`/api/projects/${project.id}/files`, { method: "POST", body });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(String(payload.error ?? "Import impossible"));
+      }
+      return payload as {
+        files: ProjectFile[];
+        uploaded: number;
+        failed: number;
+        details?: string[];
+      };
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData<Project[]>(["projects"], (current = []) =>
+        current.map((item) =>
+          item.id === project?.id
+            ? { ...item, files: [...result.files, ...item.files], updatedAt: new Date().toISOString() }
+            : item,
+        ),
+      );
+      setPendingFiles([]);
+      setShowUploader(false);
+      if (result.failed > 0) {
+        toast.warning(`${result.uploaded} importé(s), ${result.failed} échec(s)`);
+      } else {
+        toast.success(`${result.uploaded} fichier(s) importé(s)`);
+      }
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  if (!project) {
+    return (
+      <AppShell title="Projet introuvable" currentUser={currentUser} onLogout={onLogout}>
+        <Card>
+          <CardContent className="p-10 text-center">
+            <FolderOpen className="mx-auto mb-3 size-10 text-muted-foreground" />
+            <p>Ce projet n’existe pas ou vous n’y avez pas accès.</p>
+            <Button render={<Link href="/projects" />} className="mt-5">Voir les projets</Button>
+          </CardContent>
+        </Card>
+      </AppShell>
+    );
+  }
+
   return (
-    <AppShell title={project.title} description={`${project.category ?? "Projet"} · ${project.client ?? "Client interne"}`} currentUser={currentUser} onLogout={onLogout}>
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><Button variant="ghost" size="sm" render={<Link href="/projects" />} className="-ml-3 mb-2"><ArrowLeft />Tous les projets</Button><p className="max-w-2xl text-sm leading-6 text-muted-foreground">{project.description}</p><p className="mt-3 text-xs text-muted-foreground">Créé par <b className="text-foreground">{project.creatorName}</b> · {formatDate(project.createdAt, { dateStyle: "long" })}</p></div><Button><Upload />Ajouter des fichiers</Button></div>
-      <Card><CardHeader><CardTitle className="text-lg">Fichiers</CardTitle><CardDescription>{project.files.length} élément(s) dans ce projet</CardDescription></CardHeader><CardContent>
-        <div className="mb-4 grid gap-3 sm:grid-cols-3">{["Assets", "Images", "Vidéos"].map((folder) => <div key={folder} className="flex items-center gap-3 rounded-lg border bg-slate-50 p-3"><FolderOpen className="size-5 text-amber-500" /><span className="text-sm font-medium">{folder}</span><ChevronRight className="ml-auto size-4 text-muted-foreground" /></div>)}</div>
-        <div className="divide-y rounded-lg border">{project.files.length ? project.files.map((file) => <div key={file.id} className="flex items-center gap-3 p-4"><div className="grid size-10 place-items-center rounded-lg bg-slate-100"><FileIcon file={file} /></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{file.originalName}</p><p className="text-xs text-muted-foreground">{formatBytes(file.size)} · {formatDate(file.createdAt)}</p></div><Button variant="ghost" size="icon" render={file.url !== "#" ? <a href={file.url} target="_blank" rel="noreferrer" /> : undefined}><Download className="size-4" /></Button><Button variant="ghost" size="icon"><Trash2 className="size-4 text-muted-foreground" /></Button></div>) : <div className="p-10 text-center text-sm text-muted-foreground">Aucun fichier pour le moment.</div>}</div>
-      </CardContent></Card>
+    <AppShell
+      title={project.title}
+      description={`${project.category ?? "Projet"} · ${project.client ?? "Client interne"}`}
+      currentUser={currentUser}
+      onLogout={onLogout}
+    >
+      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div>
+          <Button variant="ghost" size="sm" render={<Link href="/projects" />} className="-ml-3 mb-2">
+            <ArrowLeft />Tous les projets
+          </Button>
+          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{project.description}</p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Créé par <b className="text-foreground">{project.creatorName}</b> ·{" "}
+            {formatDate(project.createdAt, { dateStyle: "long" })}
+          </p>
+        </div>
+        {canUpload ? (
+          <Button className="rounded-xl" onClick={() => setShowUploader((value) => !value)}>
+            <Upload />
+            {showUploader ? "Masquer l’import" : "Ajouter des fichiers"}
+          </Button>
+        ) : (
+          <Badge variant="secondary">Lecture seule</Badge>
+        )}
+      </div>
+
+      {showUploader && canUpload && (
+        <Card className="mb-6 border-primary/20">
+          <CardHeader>
+            <CardTitle className="text-lg">Importer dans ce projet</CardTitle>
+            <CardDescription>Fichiers individuels ou dossier complet (Chrome / Edge).</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <FileDropzone files={pendingFiles} onChange={setPendingFiles} disabled={uploadMutation.isPending} />
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-xl" disabled={uploadMutation.isPending} onClick={() => { setPendingFiles([]); setShowUploader(false); }}>
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                className="rounded-xl"
+                disabled={uploadMutation.isPending || pendingFiles.length === 0}
+                onClick={() => uploadMutation.mutate(pendingFiles)}
+              >
+                {uploadMutation.isPending ? (
+                  <><Loader2 className="size-4 animate-spin" /> Import…</>
+                ) : (
+                  <>Importer {pendingFiles.length || ""} fichier(s)</>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Fichiers</CardTitle>
+          <CardDescription>{project.files.length} élément(s) dans ce projet</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="divide-y rounded-lg border">
+            {project.files.length ? (
+              project.files.map((file) => (
+                <div key={file.id} className="flex items-center gap-3 p-4">
+                  <div className="grid size-10 place-items-center rounded-lg bg-slate-100">
+                    <FileIcon file={file} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{file.originalName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {file.folder ? `${file.folder} · ` : ""}
+                      {formatBytes(file.size)} · {formatDate(file.createdAt)}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    render={file.url && file.url !== "#" ? <a href={file.url} target="_blank" rel="noreferrer" /> : undefined}
+                    disabled={!file.url || file.url === "#"}
+                  >
+                    <Download className="size-4" />
+                  </Button>
+                </div>
+              ))
+            ) : (
+              <div className="space-y-3 p-10 text-center">
+                <p className="text-sm text-muted-foreground">Aucun fichier pour le moment.</p>
+                {canUpload && (
+                  <Button className="rounded-xl" onClick={() => setShowUploader(true)}>
+                    <Upload />Importer des fichiers
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </AppShell>
   );
 }

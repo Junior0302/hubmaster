@@ -109,29 +109,60 @@ export async function POST(request: Request) {
   }
 
   const files: ProjectFile[] = [];
+  const uploadErrors: string[] = [];
   for (const upload of uploads) {
-    const { url, filename } = await uploadProjectFile(id, upload);
-    const fileRef = await db.collection("files").add({
-      projectId: id,
-      filename,
-      originalName: upload.name,
-      extension: upload.name.split(".").pop()?.toLowerCase() ?? "",
-      size: upload.size,
-      url,
-      uploadedBy: user.uid,
-      createdAt: FieldValue.serverTimestamp(),
-    });
-    files.push({
-      id: fileRef.id,
-      projectId: id,
-      filename,
-      originalName: upload.name,
-      extension: upload.name.split(".").pop()?.toLowerCase() ?? "",
-      size: upload.size,
-      url,
-      uploadedBy: user.uid,
-      createdAt: new Date().toISOString(),
-    });
+    if (!upload.size) continue;
+    if (upload.size > 50 * 1024 * 1024) {
+      uploadErrors.push(`${upload.name} : fichier trop volumineux (max 50 Mo)`);
+      continue;
+    }
+    try {
+      const { url, filename } = await uploadProjectFile(id, upload);
+      const relativePath =
+        "webkitRelativePath" in upload && typeof upload.webkitRelativePath === "string"
+          ? upload.webkitRelativePath
+          : "";
+      const folder = relativePath.includes("/")
+        ? relativePath.split("/").slice(0, -1).join("/")
+        : undefined;
+      const fileRef = await db.collection("files").add({
+        projectId: id,
+        filename,
+        originalName: upload.name,
+        extension: upload.name.split(".").pop()?.toLowerCase() ?? "",
+        size: upload.size,
+        url,
+        uploadedBy: user.uid,
+        ...(folder ? { folder } : {}),
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      files.push({
+        id: fileRef.id,
+        projectId: id,
+        filename,
+        originalName: upload.name,
+        extension: upload.name.split(".").pop()?.toLowerCase() ?? "",
+        size: upload.size,
+        url,
+        uploadedBy: user.uid,
+        folder,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      uploadErrors.push(
+        `${upload.name} : ${error instanceof Error ? error.message : "échec upload"}`,
+      );
+    }
+  }
+
+  if (uploads.length > 0 && files.length === 0) {
+    return NextResponse.json(
+      {
+        error: uploadErrors[0] ?? "Impossible d’importer les fichiers.",
+        details: uploadErrors,
+      },
+      { status: 500 },
+    );
   }
 
   const created = await projectRef.get();
@@ -150,5 +181,8 @@ export async function POST(request: Request) {
     memberIds: data.memberIds,
     files,
   };
-  return NextResponse.json(project, { status: 201 });
+  return NextResponse.json(
+    { ...project, upload_warnings: uploadErrors },
+    { status: 201 },
+  );
 }
