@@ -11,19 +11,21 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   if (!isAdminConfigured()) return NextResponse.json(demoUsers);
 
-  const snapshot = await getAdminDb().collection("users").orderBy("createdAt", "desc").get();
-  const users = snapshot.docs.map((document) => {
-    const data = document.data();
-    return {
-      id: document.id,
-      firstname: String(data.firstname ?? ""),
-      lastname: String(data.lastname ?? ""),
-      email: String(data.email ?? ""),
-      role: (data.role as Role) ?? "user",
-      avatar: data.avatar ? String(data.avatar) : undefined,
-      createdAt: toIso(data.createdAt),
-    };
-  });
+  const snapshot = await getAdminDb().collection("users").get();
+  const users = snapshot.docs
+    .map((document) => {
+      const data = document.data();
+      return {
+        id: document.id,
+        firstname: String(data.firstname ?? ""),
+        lastname: String(data.lastname ?? ""),
+        email: String(data.email ?? ""),
+        role: (data.role as Role) ?? "user",
+        avatar: data.avatar ? String(data.avatar) : undefined,
+        createdAt: toIso(data.createdAt),
+      };
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return NextResponse.json(users);
 }
 

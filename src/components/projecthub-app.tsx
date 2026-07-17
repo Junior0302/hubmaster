@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -45,20 +45,23 @@ const projectSchema = z.object({
 type LoginValues = z.infer<typeof loginSchema>;
 type ProjectValues = z.infer<typeof projectSchema>;
 
+async function getMe(): Promise<AppUser> {
+  const response = await fetch("/api/me", { cache: "no-store" });
+  if (response.status === 401 || response.status === 404) {
+    throw new Error("SESSION_EXPIRED");
+  }
+  if (!response.ok) throw new Error("Impossible de charger le profil");
+  return response.json();
+}
+
 async function getProjects(): Promise<Project[]> {
-  const response = await fetch("/api/projects");
+  const response = await fetch("/api/projects", { cache: "no-store" });
   if (!response.ok) throw new Error("Impossible de charger les projets");
   return response.json();
 }
 
-async function getMe(): Promise<AppUser> {
-  const response = await fetch("/api/me");
-  if (!response.ok) throw new Error("Session expirée");
-  return response.json();
-}
-
 async function getUsers(): Promise<AppUser[]> {
-  const response = await fetch("/api/users");
+  const response = await fetch("/api/users", { cache: "no-store" });
   if (!response.ok) throw new Error("Impossible de charger les utilisateurs");
   return response.json();
 }
@@ -449,25 +452,44 @@ function SettingsPage({ currentUser, onLogout }: { currentUser: AppUser; onLogou
 export function ProjectHubApp({ slug }: { slug: string[] }) {
   const route = slug.join("/");
   const router = useRouter();
-  const { data: currentUser, isLoading: userLoading } = useQuery({
+  const {
+    data: currentUser,
+    isLoading: userLoading,
+    isError: userError,
+    error: userQueryError,
+  } = useQuery({
     queryKey: ["me"],
     queryFn: getMe,
     enabled: route !== "login",
+    retry: false,
   });
-  const { data: projects = [], isLoading: projectsLoading } = useQuery({
+  const { data: projects = [], isLoading: projectsLoading, isError: projectsError } = useQuery({
     queryKey: ["projects"],
     queryFn: getProjects,
     enabled: route !== "login" && !!currentUser,
+    retry: 1,
   });
   const { data: users = [] } = useQuery({
     queryKey: ["users"],
     queryFn: getUsers,
     enabled: route !== "login" && !!currentUser && currentUser.role !== "user",
+    retry: 1,
   });
   const project = useMemo(
     () => (route.startsWith("projects/") ? projects.find((item) => item.id === slug[1]) : undefined),
     [projects, route, slug],
   );
+
+  useEffect(() => {
+    if (route === "login") return;
+    if (userError) {
+      router.replace("/login");
+    }
+  }, [userError, route, router]);
+
+  useEffect(() => {
+    if (projectsError) toast.error("Impossible de charger les projets");
+  }, [projectsError]);
 
   async function handleLogout() {
     await logout();
@@ -476,8 +498,45 @@ export function ProjectHubApp({ slug }: { slug: string[] }) {
   }
 
   if (route === "login") return <LoginPage />;
-  if (userLoading || projectsLoading || !currentUser) {
-    return <div className="grid min-h-screen place-items-center bg-slate-50"><div className="text-center"><FolderOpen className="mx-auto mb-3 size-8 animate-pulse text-primary" /><p className="text-sm text-muted-foreground">Chargement de votre espace…</p></div></div>;
+
+  if (userLoading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-50">
+        <div className="text-center">
+          <FolderOpen className="mx-auto mb-3 size-8 animate-pulse text-primary" />
+          <p className="text-sm text-muted-foreground">Chargement de votre espace…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (userError || !currentUser) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-50 p-6">
+        <div className="max-w-md text-center">
+          <FolderOpen className="mx-auto mb-3 size-8 text-primary" />
+          <p className="text-sm text-muted-foreground">
+            {userQueryError?.message === "SESSION_EXPIRED"
+              ? "Session expirée. Redirection vers la connexion…"
+              : "Impossible de charger votre profil. Vérifiez la configuration Firebase sur Vercel."}
+          </p>
+          <Button className="mt-4" render={<Link href="/login" />}>
+            Se connecter
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (projectsLoading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-50">
+        <div className="text-center">
+          <FolderOpen className="mx-auto mb-3 size-8 animate-pulse text-primary" />
+          <p className="text-sm text-muted-foreground">Chargement des projets…</p>
+        </div>
+      </div>
+    );
   }
 
   if (route === "dashboard") return <Dashboard projects={projects} currentUser={currentUser} usersCount={currentUser.role === "user" ? undefined : users.length} onLogout={handleLogout} />;
