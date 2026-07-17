@@ -3,6 +3,7 @@ import { ProjectHubApp } from "@/components/projecthub-app";
 
 const allowed = new Set([
   "login",
+  "signup",
   "dashboard",
   "projects",
   "users",
