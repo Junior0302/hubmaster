@@ -1,4 +1,4 @@
-import { adminDb, isAdminConfigured } from "@/lib/firebase-admin";
+import { getAdminDb, isAdminConfigured } from "@/lib/firebase-admin";
 import { demoUsers } from "@/lib/demo-data";
 import { toIso } from "@/lib/dates";
 import type { AppUser, Role } from "@/types";
@@ -8,9 +8,9 @@ export function looksLikeUid(value: string): boolean {
 }
 
 export async function getUserProfile(uid: string): Promise<AppUser | null> {
-  if (!isAdminConfigured) return demoUsers.find((user) => user.id === uid) ?? demoUsers[0] ?? null;
+  if (!isAdminConfigured()) return demoUsers.find((user) => user.id === uid) ?? demoUsers[0] ?? null;
 
-  const document = await adminDb.collection("users").doc(uid).get();
+  const document = await getAdminDb().collection("users").doc(uid).get();
   if (!document.exists) return null;
   const data = document.data()!;
   return {

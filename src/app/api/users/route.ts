@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb, isAdminConfigured } from "@/lib/firebase-admin";
+import { getAdminAuth, getAdminDb, isAdminConfigured } from "@/lib/firebase-admin";
 import { demoUsers } from "@/lib/demo-data";
 import { getSessionUser } from "@/lib/server-auth";
 import { getUserProfile } from "@/lib/users";
@@ -9,9 +9,9 @@ import type { Role } from "@/types";
 export async function GET() {
   const session = await getSessionUser();
   if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-  if (!isAdminConfigured) return NextResponse.json(demoUsers);
+  if (!isAdminConfigured()) return NextResponse.json(demoUsers);
 
-  const snapshot = await adminDb.collection("users").orderBy("createdAt", "desc").get();
+  const snapshot = await getAdminDb().collection("users").orderBy("createdAt", "desc").get();
   const users = snapshot.docs.map((document) => {
     const data = document.data();
     return {
@@ -51,15 +51,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Données invalides" }, { status: 400 });
   }
 
-  if (!isAdminConfigured) {
+  if (!isAdminConfigured()) {
     return NextResponse.json(
       { error: "Création d’utilisateur disponible uniquement avec Firebase configuré" },
       { status: 503 },
     );
   }
 
-  const authUser = await adminAuth.createUser({ email, password, displayName: `${firstname} ${lastname}` });
-  await adminDb.collection("users").doc(authUser.uid).set({
+  const authUser = await getAdminAuth().createUser({
+    email,
+    password,
+    displayName: `${firstname} ${lastname}`,
+  });
+  await getAdminDb().collection("users").doc(authUser.uid).set({
     firstname,
     lastname,
     email,

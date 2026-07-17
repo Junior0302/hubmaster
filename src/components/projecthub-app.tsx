@@ -98,7 +98,9 @@ function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { register, handleSubmit, formState: { errors } } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "admin@projecthub.fr", password: "password" },
+    defaultValues: isFirebaseConfigured
+      ? { email: "", password: "" }
+      : { email: "admin@projecthub.fr", password: "password" },
   });
 
   async function onSubmit(values: LoginValues) {
@@ -114,11 +116,21 @@ function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idToken }),
       });
-      if (!response.ok) throw new Error("Identifiants incorrects");
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Session impossible");
       router.push("/dashboard");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Connexion impossible");
+      const code = typeof error === "object" && error && "code" in error ? String((error as { code: string }).code) : "";
+      const message =
+        code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found"
+          ? "Email ou mot de passe incorrect"
+          : code === "auth/unauthorized-domain"
+            ? "Ajoutez votre domaine Vercel dans Firebase → Authentication → Domaines autorisés"
+            : error instanceof Error
+              ? error.message
+              : "Connexion impossible";
+      toast.error(message);
     } finally {
       setLoading(false);
     }

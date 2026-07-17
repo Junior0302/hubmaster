@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/server-auth";
 import { getUserProfile } from "@/lib/users";
-import { adminDb, isAdminConfigured } from "@/lib/firebase-admin";
+import { getAdminDb, isAdminConfigured } from "@/lib/firebase-admin";
 import { demoUsers } from "@/lib/demo-data";
 
 export async function GET() {
@@ -24,12 +24,12 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Prénom et nom requis" }, { status: 400 });
   }
 
-  if (!isAdminConfigured) {
+  if (!isAdminConfigured()) {
     const profile = demoUsers[0];
     return NextResponse.json({ ...profile, firstname, lastname });
   }
 
-  await adminDb.collection("users").doc(session.uid).set({ firstname, lastname }, { merge: true });
+  await getAdminDb().collection("users").doc(session.uid).set({ firstname, lastname }, { merge: true });
   const profile = await getUserProfile(session.uid);
   return NextResponse.json(profile);
 }

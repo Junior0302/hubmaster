@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { adminDb, isAdminConfigured } from "@/lib/firebase-admin";
+import { getAdminDb, isAdminConfigured } from "@/lib/firebase-admin";
 import { isSupabaseConfigured, uploadProjectFile } from "@/lib/supabase-storage";
 import { demoProjects } from "@/lib/demo-data";
 import { getSessionUser } from "@/lib/server-auth";
@@ -11,15 +11,16 @@ import type { Project, ProjectFile } from "@/types";
 export async function GET() {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-  if (!isAdminConfigured) return NextResponse.json(demoProjects);
+  if (!isAdminConfigured()) return NextResponse.json(demoProjects);
 
-  let query: FirebaseFirestore.Query = adminDb.collection("projects");
+  const db = getAdminDb();
+  let query: FirebaseFirestore.Query = db.collection("projects");
   if (user.role === "user") query = query.where("memberIds", "array-contains", user.uid);
   const snapshot = await query.orderBy("updatedAt", "desc").get();
   const projects = await Promise.all(
     snapshot.docs.map(async (document) => {
       const data = document.data();
-      const filesSnapshot = await adminDb.collection("files").where("projectId", "==", document.id).get();
+      const filesSnapshot = await db.collection("files").where("projectId", "==", document.id).get();
       const files = filesSnapshot.docs.map((file) => {
         const fileData = file.data();
         return { id: file.id, ...fileData, createdAt: toIso(fileData.createdAt) } as ProjectFile;
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
   const profile = await getUserProfile(user.uid);
   const creatorName = profile ? `${profile.firstname} ${profile.lastname}`.trim() : "Utilisateur";
 
-  if (!isAdminConfigured) {
+  if (!isAdminConfigured()) {
     const now = new Date().toISOString();
     const project: Project = {
       id,
@@ -85,7 +86,8 @@ export async function POST(request: Request) {
     return NextResponse.json(project, { status: 201 });
   }
 
-  const projectRef = adminDb.collection("projects").doc(id);
+  const db = getAdminDb();
+  const projectRef = db.collection("projects").doc(id);
   await projectRef.set({
     title,
     description: String(form.get("description") ?? ""),
@@ -109,7 +111,7 @@ export async function POST(request: Request) {
   const files: ProjectFile[] = [];
   for (const upload of uploads) {
     const { url, filename } = await uploadProjectFile(id, upload);
-    const fileRef = await adminDb.collection("files").add({
+    const fileRef = await db.collection("files").add({
       projectId: id,
       filename,
       originalName: upload.name,

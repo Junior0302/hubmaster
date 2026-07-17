@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminAuth, isAdminConfigured } from "@/lib/firebase-admin";
+import { getAdminAuth, isAdminConfigured } from "@/lib/firebase-admin";
 
 const expiresIn = 60 * 60 * 24 * 5 * 1000;
 
@@ -8,9 +8,17 @@ export async function POST(request: Request) {
   if (!idToken) return NextResponse.json({ error: "Jeton manquant" }, { status: 400 });
 
   try {
-    const session = isAdminConfigured
-      ? await adminAuth.createSessionCookie(idToken, { expiresIn })
-      : "projecthub-demo-session";
+    if (!isAdminConfigured()) {
+      return NextResponse.json(
+        {
+          error:
+            "Firebase Admin non configuré sur Vercel. Ajoutez FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL et FIREBASE_PRIVATE_KEY.",
+        },
+        { status: 503 },
+      );
+    }
+
+    const session = await getAdminAuth().createSessionCookie(idToken, { expiresIn });
     const response = NextResponse.json({ ok: true });
     response.cookies.set("projecthub_session", session, {
       httpOnly: true,
@@ -20,8 +28,17 @@ export async function POST(request: Request) {
       path: "/",
     });
     return response;
-  } catch {
-    return NextResponse.json({ error: "Authentification refusée" }, { status: 401 });
+  } catch (error) {
+    console.error("[api/session]", error);
+    const message = error instanceof Error ? error.message : "Authentification refusée";
+    return NextResponse.json(
+      {
+        error: message.includes("private key") || message.includes("DECODER")
+          ? "FIREBASE_PRIVATE_KEY invalide. Sur Vercel, collez la clé avec les \\n (une seule ligne)."
+          : "Authentification refusée. Vérifiez les variables Firebase Admin et le domaine autorisé.",
+      },
+      { status: 500 },
+    );
   }
 }
 
