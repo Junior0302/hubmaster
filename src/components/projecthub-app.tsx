@@ -216,8 +216,8 @@ function LoginPage() {
               {!isFirebaseConfigured && (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-900">
                   <b>Config manquante.</b> Sur Render → Environment, ajoutez les variables Firebase/Supabase puis redéployez.
-                  Test : <a className="underline" href="/api/health">/api/health</a> doit afficher{" "}
-                  <code>adminConfigured: true</code>.
+                  Testez ensuite l’URL <code className="rounded bg-amber-100 px-1">/api/health</code> :{" "}
+                  <code>adminConfigured</code> doit être <code>true</code>.
                 </p>
               )}
               {isFirebaseConfigured && (
