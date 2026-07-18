@@ -76,6 +76,16 @@ export async function getFileAccessUrl(storagePath: string): Promise<string> {
   return url;
 }
 
+export async function deleteStoredFile(storagePath: string): Promise<void> {
+  if (!isSupabaseConfigured || !storagePath) return;
+  const supabase = getSupabaseAdmin();
+  const bucket = process.env.SUPABASE_BUCKET!;
+  const { error } = await supabase.storage.from(bucket).remove([storagePath]);
+  if (error) {
+    console.warn("[supabase] deleteStoredFile", storagePath, error.message);
+  }
+}
+
 /**
  * Try to recover the storage object path from a stored public/signed URL
  * or from a bare filename previously saved without storagePath.

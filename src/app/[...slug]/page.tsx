@@ -9,6 +9,8 @@ const allowed = new Set([
   "users",
   "profile",
   "settings",
+  "network",
+  "messages",
 ]);
 
 export default async function CatchAllPage({

@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { getAdminDb, isAdminConfigured } from "@/lib/firebase-admin";
 import { getSessionUser } from "@/lib/server-auth";
 import {
+  canManageProjects,
+  canAccessProject,
+} from "@/lib/permissions";
+import {
+  deleteStoredFile,
   getFileAccessUrl,
   inferStoragePath,
   isSupabaseConfigured,
@@ -31,10 +36,7 @@ export async function GET(
   }
 
   const project = projectSnap.data()!;
-  if (
-    user.role === "user" &&
-    !(Array.isArray(project.memberIds) && project.memberIds.includes(user.uid))
-  ) {
+  if (!canAccessProject({ uid: user.uid, role: user.role }, project)) {
     return NextResponse.json({ error: "Accès refusé à ce projet." }, { status: 403 });
   }
 
@@ -61,7 +63,7 @@ export async function GET(
       const freshUrl = await getFileAccessUrl(path);
       return NextResponse.redirect(freshUrl, 302);
     } catch {
-      // fall through to stored URL
+      // fall through
     }
   }
 
@@ -70,10 +72,50 @@ export async function GET(
   }
 
   return NextResponse.json(
-    {
-      error:
-        "Lien du fichier indisponible. Réimportez le fichier ou vérifiez la config Supabase.",
-    },
+    { error: "Lien du fichier indisponible. Réimportez le fichier ou vérifiez Supabase." },
     { status: 404 },
   );
+}
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ id: string; fileId: string }> },
+) {
+  const user = await getSessionUser();
+  if (!user || !canManageProjects({ uid: user.uid, role: user.role })) {
+    return NextResponse.json({ error: "Droits insuffisants" }, { status: 403 });
+  }
+  if (!isAdminConfigured()) {
+    return NextResponse.json({ error: "Backend non configuré." }, { status: 503 });
+  }
+
+  const { id: projectId, fileId } = await context.params;
+  const db = getAdminDb();
+  const fileSnap = await db.collection("files").doc(fileId).get();
+  if (!fileSnap.exists) {
+    return NextResponse.json({ error: "Fichier introuvable." }, { status: 404 });
+  }
+
+  const file = fileSnap.data()!;
+  if (file.projectId !== projectId) {
+    return NextResponse.json({ error: "Ce fichier n’appartient pas à ce projet." }, { status: 404 });
+  }
+
+  const path = inferStoragePath({
+    storagePath: typeof file.storagePath === "string" ? file.storagePath : undefined,
+    filename: typeof file.filename === "string" ? file.filename : undefined,
+    url: typeof file.url === "string" ? file.url : undefined,
+    projectId,
+  });
+  if (isSupabaseConfigured && path) {
+    await deleteStoredFile(path);
+  }
+
+  await fileSnap.ref.delete();
+  await db.collection("projects").doc(projectId).set(
+    { updatedAt: new Date().toISOString() },
+    { merge: true },
+  );
+
+  return NextResponse.json({ ok: true });
 }

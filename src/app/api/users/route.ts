@@ -1,37 +1,61 @@
 import { NextResponse } from "next/server";
 import { getAdminAuth, getAdminDb, isAdminConfigured } from "@/lib/firebase-admin";
 import { demoUsers } from "@/lib/demo-data";
+import { canManageUsers, directoryUsersFor, visibleUsersFor } from "@/lib/permissions";
 import { getSessionUser } from "@/lib/server-auth";
 import { getUserProfile } from "@/lib/users";
 import { toIso } from "@/lib/dates";
-import type { Role } from "@/types";
+import type { AppUser, Role } from "@/types";
 
-export async function GET() {
+function mapUserDoc(id: string, data: FirebaseFirestore.DocumentData): AppUser {
+  return {
+    id,
+    firstname: String(data.firstname ?? ""),
+    lastname: String(data.lastname ?? ""),
+    email: String(data.email ?? ""),
+    role: (data.role as Role) ?? "user",
+    avatar: data.avatar ? String(data.avatar) : undefined,
+    createdAt: toIso(data.createdAt),
+  };
+}
+
+async function listAllUsers(): Promise<AppUser[]> {
+  if (!isAdminConfigured()) return demoUsers;
+  const snapshot = await getAdminDb().collection("users").get();
+  return snapshot.docs
+    .map((document) => mapUserDoc(document.id, document.data()))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function GET(request: Request) {
   const session = await getSessionUser();
   if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-  if (!isAdminConfigured()) return NextResponse.json(demoUsers);
 
-  const snapshot = await getAdminDb().collection("users").get();
-  const users = snapshot.docs
-    .map((document) => {
-      const data = document.data();
-      return {
-        id: document.id,
-        firstname: String(data.firstname ?? ""),
-        lastname: String(data.lastname ?? ""),
-        email: String(data.email ?? ""),
-        role: (data.role as Role) ?? "user",
-        avatar: data.avatar ? String(data.avatar) : undefined,
-        createdAt: toIso(data.createdAt),
-      };
-    })
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return NextResponse.json(users);
+  const url = new URL(request.url);
+  const directory = url.searchParams.get("directory") === "1";
+  const all = await listAllUsers();
+  const viewer = { uid: session.uid, role: session.role };
+
+  if (directory) {
+    const users = directoryUsersFor(viewer, all).map((user) => {
+      if (session.role === "user") {
+        return { ...user, email: "" };
+      }
+      return user;
+    });
+    return NextResponse.json(users);
+  }
+
+  // Admin panel: full list for admins; managers see non-admins only.
+  if (session.role === "admin") {
+    return NextResponse.json(all);
+  }
+  return NextResponse.json(visibleUsersFor(viewer, all));
 }
 
 export async function POST(request: Request) {
   const session = await getSessionUser();
-  if (!session || session.role !== "admin") {
+  if (!session || !canManageUsers({ uid: session.uid, role: session.role })) {
     return NextResponse.json({ error: "Droits insuffisants" }, { status: 403 });
   }
 
@@ -51,6 +75,10 @@ export async function POST(request: Request) {
 
   if (!email || !password || password.length < 6 || !firstname || !lastname) {
     return NextResponse.json({ error: "Données invalides" }, { status: 400 });
+  }
+
+  if (!["admin", "manager", "user"].includes(role)) {
+    return NextResponse.json({ error: "Rôle invalide" }, { status: 400 });
   }
 
   if (!isAdminConfigured()) {

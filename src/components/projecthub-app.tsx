@@ -10,8 +10,8 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { z } from "zod";
 import {
   AlertCircle, ArrowLeft, ArrowRight, Bell, BriefcaseBusiness, Camera, CheckCircle2, ChevronRight, Download, Eye, ExternalLink, FileText,
-  Files, Folder, FolderOpen, HardDrive, ImageIcon, Info, LayoutDashboard, Loader2, LogOut, Menu,
-  Plus, Search, Settings, Sparkles, Trash2, Upload, UserRound, Users, Video,
+  Files, Folder, FolderOpen, HardDrive, ImageIcon, Info, LayoutDashboard, Loader2, LogOut, Menu, MessageCircle,
+  Plus, Search, Settings, Sparkles, Trash2, Upload, UserPlus, UserRound, Users, Video,
 } from "lucide-react";
 import { toast } from "sonner";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
@@ -28,8 +28,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { MessagesContent, NetworkContent } from "@/components/social-pages";
 
 const loginSchema = z.object({
   email: z.string().email("Adresse email invalide"),
@@ -130,6 +132,8 @@ function UserAvatar({
 const nav = [
   { href: "/dashboard", label: "Vue d’ensemble", icon: LayoutDashboard },
   { href: "/projects", label: "Projets", icon: BriefcaseBusiness },
+  { href: "/network", label: "Réseau", icon: UserPlus },
+  { href: "/messages", label: "Messages", icon: MessageCircle },
   { href: "/users", label: "Utilisateurs", icon: Users },
 ];
 
@@ -165,7 +169,7 @@ function UserAlert({
   );
 }
 
-function AppLoading({ label = "Chargement de votre espace…" }: { label?: string }) {
+function AppLoading({ label = "Chargement de votre espace…", step }: { label?: string; step?: string }) {
   return (
     <div className="grid min-h-screen place-items-center hub-surface p-6">
       <div className="w-full max-w-sm rounded-3xl border border-border/70 bg-white p-8 text-center shadow-xl shadow-slate-200/50">
@@ -174,6 +178,11 @@ function AppLoading({ label = "Chargement de votre espace…" }: { label?: strin
         </div>
         <p className="text-base font-semibold tracking-tight">Hubmaster</p>
         <p className="mt-2 text-sm text-muted-foreground">{label}</p>
+        {step ? <p className="mt-1 text-xs text-muted-foreground/80">{step}</p> : null}
+        <div className="mt-6 space-y-2">
+          <Skeleton className="h-3 w-full rounded-full" />
+          <Skeleton className="mx-auto h-3 w-4/5 rounded-full" />
+        </div>
       </div>
     </div>
   );
@@ -377,9 +386,10 @@ function SignupPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [step, setStep] = useState<1 | 2>(1);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const { register, handleSubmit, formState: { errors } } = useForm<SignupValues>({
+  const { register, handleSubmit, trigger, formState: { errors } } = useForm<SignupValues>({
     resolver: zodResolver(signupSchema),
     defaultValues: { firstname: "", lastname: "", email: "", password: "", passwordConfirm: "" },
   });
@@ -389,10 +399,20 @@ function SignupPage() {
       setPreview(null);
       return;
     }
+    if (avatarFile.size > 2 * 1024 * 1024) {
+      toast.error("La photo ne doit pas dépasser 2 Mo");
+      setAvatarFile(null);
+      return;
+    }
     const url = URL.createObjectURL(avatarFile);
     setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [avatarFile]);
+
+  async function goNext() {
+    const ok = await trigger(["firstname", "lastname", "email", "password", "passwordConfirm"]);
+    if (ok) setStep(2);
+  }
 
   async function onSubmit(values: SignupValues) {
     setLoading(true);
@@ -440,65 +460,88 @@ function SignupPage() {
     <AuthShell
       mode="signup"
       title="Créer un compte"
-      description="Ajoutez votre photo, vos infos, et rejoignez Hubmaster."
+      description={step === 1 ? "Étape 1 · Vos informations" : "Étape 2 · Photo de profil (optionnel)"}
     >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
         {error && <UserAlert tone="error" title="Inscription impossible" detail={error} action="Vérifiez vos infos ou réessayez dans quelques secondes si le serveur démarre." />}
-        <div className="flex items-center gap-4 rounded-2xl border border-dashed border-border bg-muted/40 p-3">
-          <label className="group relative cursor-pointer">
-            <span className="grid size-20 place-items-center overflow-hidden rounded-2xl border bg-white shadow-inner">
-              {preview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={preview} alt="" className="size-full object-cover" />
-              ) : (
-                <Camera className="size-6 text-muted-foreground transition group-hover:text-primary" />
-              )}
-            </span>
-            <span className="absolute -bottom-1 -right-1 grid size-7 place-items-center rounded-full bg-primary text-primary-foreground shadow">
-              <Plus className="size-3.5" />
-            </span>
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)}
-            />
-          </label>
-          <div>
-            <p className="text-sm font-semibold">Photo de profil</p>
-            <p className="text-xs text-muted-foreground">Optionnel · JPG, PNG, WebP · 2 Mo max</p>
-            {avatarFile && (
-              <button type="button" className="mt-1 text-xs font-medium text-primary" onClick={() => setAvatarFile(null)}>
-                Retirer la photo
-              </button>
-            )}
-          </div>
+        <div className="flex gap-2">
+          <div className={`h-1.5 flex-1 rounded-full ${step >= 1 ? "bg-primary" : "bg-muted"}`} />
+          <div className={`h-1.5 flex-1 rounded-full ${step >= 2 ? "bg-primary" : "bg-muted"}`} />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2"><Label>Prénom</Label><Input className="h-11 rounded-xl" {...register("firstname")} />{errors.firstname && <p className="text-xs text-destructive">{errors.firstname.message}</p>}</div>
-          <div className="space-y-2"><Label>Nom</Label><Input className="h-11 rounded-xl" {...register("lastname")} />{errors.lastname && <p className="text-xs text-destructive">{errors.lastname.message}</p>}</div>
-        </div>
-        <div className="space-y-2"><Label>Email</Label><Input type="email" className="h-11 rounded-xl" placeholder="vous@entreprise.com" {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
-        <div className="space-y-2"><Label>Mot de passe</Label><Input type="password" className="h-11 rounded-xl" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
-        <div className="space-y-2"><Label>Confirmer le mot de passe</Label><Input type="password" className="h-11 rounded-xl" {...register("passwordConfirm")} />{errors.passwordConfirm && <p className="text-xs text-destructive">{errors.passwordConfirm.message}</p>}</div>
-        <Button type="submit" className="h-11 w-full rounded-xl text-base" disabled={loading}>
-          {loading ? "Création…" : <>Créer mon compte <ArrowRight className="size-4" /></>}
-        </Button>
+
+        {step === 1 ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2"><Label>Prénom</Label><Input className="h-11 rounded-xl" {...register("firstname")} />{errors.firstname && <p className="text-xs text-destructive">{errors.firstname.message}</p>}</div>
+              <div className="space-y-2"><Label>Nom</Label><Input className="h-11 rounded-xl" {...register("lastname")} />{errors.lastname && <p className="text-xs text-destructive">{errors.lastname.message}</p>}</div>
+            </div>
+            <div className="space-y-2"><Label>Email</Label><Input type="email" className="h-11 rounded-xl" placeholder="vous@entreprise.com" {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
+            <div className="space-y-2"><Label>Mot de passe</Label><Input type="password" className="h-11 rounded-xl" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
+            <div className="space-y-2"><Label>Confirmer le mot de passe</Label><Input type="password" className="h-11 rounded-xl" {...register("passwordConfirm")} />{errors.passwordConfirm && <p className="text-xs text-destructive">{errors.passwordConfirm.message}</p>}</div>
+            <Button type="button" className="h-11 w-full rounded-xl text-base" onClick={goNext}>
+              Continuer <ArrowRight className="size-4" />
+            </Button>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-4 rounded-2xl border border-dashed border-border bg-muted/40 p-3">
+              <label className="group relative cursor-pointer">
+                <span className="grid size-20 place-items-center overflow-hidden rounded-2xl border bg-white shadow-inner">
+                  {preview ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={preview} alt="" className="size-full object-cover" />
+                  ) : (
+                    <Camera className="size-6 text-muted-foreground transition group-hover:text-primary" />
+                  )}
+                </span>
+                <span className="absolute -bottom-1 -right-1 grid size-7 place-items-center rounded-full bg-primary text-primary-foreground shadow">
+                  <Plus className="size-3.5" />
+                </span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              <div>
+                <p className="text-sm font-semibold">Photo de profil</p>
+                <p className="text-xs text-muted-foreground">Optionnel · JPG, PNG, WebP · 2 Mo max</p>
+                {avatarFile && (
+                  <button type="button" className="mt-1 text-xs font-medium text-primary" onClick={() => setAvatarFile(null)}>
+                    Retirer la photo
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="h-11 flex-1 rounded-xl" onClick={() => setStep(1)}>
+                Retour
+              </Button>
+              <Button type="submit" className="h-11 flex-1 rounded-xl text-base" disabled={loading}>
+                {loading ? "Création…" : <>Créer mon compte <ArrowRight className="size-4" /></>}
+              </Button>
+            </div>
+          </>
+        )}
       </form>
     </AuthShell>
   );
 }
 
-function Sidebar({ mobile = false, currentUser, onLogout }: { mobile?: boolean; currentUser: AppUser; onLogout: () => void }) {
+function Sidebar({ mobile = false, currentUser, onLogout, pendingFriends = 0 }: { mobile?: boolean; currentUser: AppUser; onLogout: () => void; pendingFriends?: number }) {
   const pathname = usePathname();
-  const links = nav.filter((item) => item.href !== "/users" || currentUser.role !== "user");
+  const links = nav.filter((item) => item.href !== "/users" || currentUser.role === "admin");
   return (
     <div className="flex h-full flex-col bg-sidebar/80 p-5 backdrop-blur">
       <Logo />
       <nav className="mt-10 space-y-1">
         <p className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Espace</p>
         {links.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || (href === "/projects" && pathname.startsWith("/projects/"));
+          const active =
+            pathname === href ||
+            (href === "/projects" && pathname.startsWith("/projects/")) ||
+            (href === "/messages" && pathname.startsWith("/messages"));
           return (
             <Link
               key={href}
@@ -510,7 +553,10 @@ function Sidebar({ mobile = false, currentUser, onLogout }: { mobile?: boolean; 
               }`}
             >
               <Icon className="size-4" />
-              {label}
+              <span className="flex-1">{label}</span>
+              {href === "/network" && pendingFriends > 0 ? (
+                <Badge className="rounded-full px-1.5 py-0 text-[10px]">{pendingFriends}</Badge>
+              ) : null}
             </Link>
           );
         })}
@@ -533,11 +579,11 @@ function Sidebar({ mobile = false, currentUser, onLogout }: { mobile?: boolean; 
   );
 }
 
-function AppShell({ children, title, description, currentUser, onLogout }: { children: React.ReactNode; title: string; description?: string; currentUser: AppUser; onLogout: () => void }) {
+function AppShell({ children, title, description, currentUser, onLogout, pendingFriends = 0 }: { children: React.ReactNode; title: string; description?: string; currentUser: AppUser; onLogout: () => void; pendingFriends?: number }) {
   return (
     <div className="min-h-screen hub-surface">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-border/70 bg-white/70 lg:block">
-        <Sidebar currentUser={currentUser} onLogout={onLogout} />
+        <Sidebar currentUser={currentUser} onLogout={onLogout} pendingFriends={pendingFriends} />
       </aside>
       <div className="lg:pl-64">
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border/70 bg-white/75 px-5 backdrop-blur-xl md:px-8">
@@ -547,7 +593,7 @@ function AppShell({ children, title, description, currentUser, onLogout }: { chi
                 <Menu />
               </SheetTrigger>
               <SheetContent side="left" className="w-64 p-0">
-                <Sidebar mobile currentUser={currentUser} onLogout={onLogout} />
+                <Sidebar mobile currentUser={currentUser} onLogout={onLogout} pendingFriends={pendingFriends} />
               </SheetContent>
             </Sheet>
             <div>
@@ -556,9 +602,13 @@ function AppShell({ children, title, description, currentUser, onLogout }: { chi
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="relative rounded-xl">
+            <Button variant="ghost" size="icon" className="relative rounded-xl" render={<Link href="/network" />}>
               <Bell className="size-4" />
-              <span className="absolute right-2 top-2 size-1.5 rounded-full bg-red-500" />
+              {pendingFriends > 0 ? (
+                <span className="absolute right-1.5 top-1.5 grid min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+                  {pendingFriends}
+                </span>
+              ) : null}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="ghost" className="h-11 gap-3 rounded-xl px-2" />}>
@@ -665,7 +715,7 @@ function ProjectCard({ project }: { project: Project }) {
   );
 }
 
-function Dashboard({ projects, currentUser, usersCount, onLogout }: { projects: Project[]; currentUser: AppUser; usersCount?: number; onLogout: () => void }) {
+function Dashboard({ projects, currentUser, usersCount, onLogout, pendingFriends = 0 }: { projects: Project[]; currentUser: AppUser; usersCount?: number; onLogout: () => void; pendingFriends?: number }) {
   const [search, setSearch] = useState("");
   const visible = projects.filter((project) => project.title.toLowerCase().includes(search.toLowerCase()));
   const totalFiles = projects.reduce((sum, p) => sum + p.files.length, 0);
@@ -678,6 +728,7 @@ function Dashboard({ projects, currentUser, usersCount, onLogout }: { projects: 
       description="Voici l’activité de votre espace aujourd’hui."
       currentUser={currentUser}
       onLogout={onLogout}
+      pendingFriends={pendingFriends}
     >
       <section className="mb-8 overflow-hidden rounded-3xl border border-border/70 bg-[oklch(0.28_0.06_250)] p-6 text-white shadow-lg shadow-slate-300/30 md:p-8 hub-fade-up">
         <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
@@ -738,7 +789,7 @@ function Dashboard({ projects, currentUser, usersCount, onLogout }: { projects: 
   );
 }
 
-function ProjectsPage({ projects, currentUser, onLogout }: { projects: Project[]; currentUser: AppUser; onLogout: () => void }) {
+function ProjectsPage({ projects, currentUser, onLogout, pendingFriends = 0 }: { projects: Project[]; currentUser: AppUser; onLogout: () => void; pendingFriends?: number }) {
   const canCreate = currentUser.role !== "user";
   return (
     <AppShell
@@ -746,6 +797,7 @@ function ProjectsPage({ projects, currentUser, onLogout }: { projects: Project[]
       description="Ouvrez un projet pour lire et télécharger ses fichiers"
       currentUser={currentUser}
       onLogout={onLogout}
+      pendingFriends={pendingFriends}
     >
       <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
@@ -907,7 +959,7 @@ function FileDropzone({
   );
 }
 
-function NewProjectPage({ currentUser, onLogout }: { currentUser: AppUser; onLogout: () => void }) {
+function NewProjectPage({ currentUser, onLogout, pendingFriends = 0 }: { currentUser: AppUser; onLogout: () => void; pendingFriends?: number }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [files, setFiles] = useState<File[]>([]);
@@ -939,7 +991,7 @@ function NewProjectPage({ currentUser, onLogout }: { currentUser: AppUser; onLog
   });
 
   return (
-    <AppShell title="Nouveau projet" description="Créez un espace et ajoutez vos premiers fichiers." currentUser={currentUser} onLogout={onLogout}>
+    <AppShell title="Nouveau projet" description="Créez un espace et ajoutez vos premiers fichiers." currentUser={currentUser} onLogout={onLogout} pendingFriends={pendingFriends}>
       <div className="mx-auto max-w-3xl">
         <Button variant="ghost" render={<Link href="/projects" />} className="mb-4"><ArrowLeft />Retour</Button>
         <Card>
@@ -1018,12 +1070,24 @@ function fileOpenHref(projectId: string, file: ProjectFile) {
   return `/api/projects/${projectId}/files/${file.id}`;
 }
 
-function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; currentUser: AppUser; onLogout: () => void }) {
+function ProjectDetail({ project, currentUser, onLogout, pendingFriends = 0 }: { project?: Project; currentUser: AppUser; onLogout: () => void; pendingFriends?: number }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [showUploader, setShowUploader] = useState(false);
   const [previewFile, setPreviewFile] = useState<ProjectFile | null>(null);
+  const [memberId, setMemberId] = useState("");
   const canUpload = currentUser.role !== "user";
+
+  const { data: directory = [] } = useQuery({
+    queryKey: ["directory"],
+    queryFn: async () => {
+      const response = await fetch("/api/users?directory=1", { cache: "no-store" });
+      if (!response.ok) return [] as AppUser[];
+      return response.json() as Promise<AppUser[]>;
+    },
+    enabled: canUpload,
+  });
 
   const uploadMutation = useMutation({
     mutationFn: async (filesToUpload: File[]) => {
@@ -1068,9 +1132,70 @@ function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; 
     onError: (error) => toast.error(error.message),
   });
 
+  const deleteFileMutation = useMutation({
+    mutationFn: async (fileId: string) => {
+      if (!project) throw new Error("Projet introuvable");
+      const response = await fetch(`/api/projects/${project.id}/files/${fileId}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(payload.error ?? "Suppression impossible"));
+      return fileId;
+    },
+    onSuccess: (fileId) => {
+      queryClient.setQueryData<Project[]>(["projects"], (current = []) =>
+        current.map((item) =>
+          item.id === project?.id
+            ? { ...item, files: item.files.filter((f) => f.id !== fileId) }
+            : item,
+        ),
+      );
+      if (previewFile?.id === fileId) setPreviewFile(null);
+      toast.success("Fichier supprimé");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const deleteProjectMutation = useMutation({
+    mutationFn: async () => {
+      if (!project) throw new Error("Projet introuvable");
+      const response = await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(payload.error ?? "Suppression impossible"));
+    },
+    onSuccess: () => {
+      queryClient.setQueryData<Project[]>(["projects"], (current = []) =>
+        current.filter((item) => item.id !== project?.id),
+      );
+      toast.success("Projet supprimé");
+      router.push("/projects");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const membersMutation = useMutation({
+    mutationFn: async (memberIds: string[]) => {
+      if (!project) throw new Error("Projet introuvable");
+      const response = await fetch(`/api/projects/${project.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberIds }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(payload.error ?? "Mise à jour impossible"));
+      return payload as Project;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData<Project[]>(["projects"], (current = []) =>
+        current.map((item) => (item.id === updated.id ? { ...item, ...updated, files: item.files } : item)),
+      );
+      setMemberId("");
+      toast.success("Membres mis à jour");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   if (!project) {
     return (
-      <AppShell title="Projet introuvable" currentUser={currentUser} onLogout={onLogout}>
+      <AppShell title="Projet introuvable" currentUser={currentUser} onLogout={onLogout} pendingFriends={pendingFriends}>
         <Card>
           <CardContent className="space-y-4 p-10 text-center">
             <FolderOpen className="mx-auto size-10 text-muted-foreground" />
@@ -1084,12 +1209,15 @@ function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; 
     );
   }
 
+  const memberOptions = directory.filter((u) => !project.memberIds.includes(u.id));
+
   return (
     <AppShell
       title={project.title}
       description="Consultez, ouvrez et téléchargez les fichiers du projet"
       currentUser={currentUser}
       onLogout={onLogout}
+      pendingFriends={pendingFriends}
     >
       <div className="mb-6 flex flex-col justify-between gap-4 rounded-3xl border border-border/70 bg-white p-5 shadow-sm sm:flex-row sm:items-center">
         <div className="min-w-0">
@@ -1104,15 +1232,60 @@ function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; 
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{project.description}</p>
           ) : null}
         </div>
-        {canUpload ? (
-          <Button className="h-11 shrink-0 rounded-xl" onClick={() => setShowUploader((value) => !value)}>
-            <Upload />
-            {showUploader ? "Fermer l’import" : "Importer des fichiers"}
-          </Button>
-        ) : (
-          <Badge variant="secondary" className="rounded-lg px-3 py-1.5">Lecture & téléchargement</Badge>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {canUpload ? (
+            <>
+              <Button className="h-11 shrink-0 rounded-xl" onClick={() => setShowUploader((value) => !value)}>
+                <Upload />
+                {showUploader ? "Fermer l’import" : "Importer des fichiers"}
+              </Button>
+              <Button
+                variant="destructive"
+                className="h-11 rounded-xl"
+                disabled={deleteProjectMutation.isPending}
+                onClick={() => {
+                  if (window.confirm(`Supprimer définitivement « ${project.title} » et tous ses fichiers ?`)) {
+                    deleteProjectMutation.mutate();
+                  }
+                }}
+              >
+                <Trash2 className="size-4" /> Supprimer
+              </Button>
+            </>
+          ) : (
+            <Badge variant="secondary" className="rounded-lg px-3 py-1.5">Lecture & téléchargement</Badge>
+          )}
+        </div>
       </div>
+
+      {canUpload && (
+        <Card className="mb-6 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-lg">Membres du projet</CardTitle>
+            <CardDescription>{project.memberIds.length} membre(s) · ajoutez des comptes visibles (hors admins).</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row">
+            <Select value={memberId || undefined} onValueChange={(value) => setMemberId(String(value ?? ""))}>
+              <SelectTrigger className="rounded-xl sm:max-w-sm"><SelectValue placeholder="Choisir un membre" /></SelectTrigger>
+              <SelectContent>
+                {memberOptions.map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.firstname} {user.lastname}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              className="rounded-xl"
+              disabled={!memberId || membersMutation.isPending}
+              onClick={() => membersMutation.mutate([...project.memberIds, memberId])}
+            >
+              <UserPlus className="size-4" /> Ajouter
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {showUploader && canUpload && (
         <Card className="mb-6 border-primary/25 shadow-sm">
@@ -1221,6 +1394,21 @@ function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; 
                         ) : (
                           <Badge variant="outline">Lien indisponible</Badge>
                         )}
+                        {canUpload && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="rounded-xl text-destructive"
+                            disabled={deleteFileMutation.isPending}
+                            onClick={() => {
+                              if (window.confirm(`Supprimer « ${file.originalName} » ?`)) {
+                                deleteFileMutation.mutate(file.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );
@@ -1238,7 +1426,7 @@ function ProjectDetail({ project, currentUser, onLogout }: { project?: Project; 
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {previewFile && canPreviewFile(previewFile) ? (
+            {previewFile && (canPreviewFile(previewFile) || previewFile.url) ? (
               <div className="overflow-hidden rounded-2xl border bg-white">
                 {previewFile.extension.toLowerCase() === "pdf" ? (
                   <iframe title={previewFile.originalName} src={previewFile.url} className="h-[28rem] w-full" />
@@ -1272,7 +1460,7 @@ const userSchema = z.object({
 
 type UserFormValues = z.infer<typeof userSchema>;
 
-function UsersPage({ currentUser, onLogout }: { currentUser: AppUser; onLogout: () => void }) {
+function UsersPage({ currentUser, onLogout, pendingFriends = 0 }: { currentUser: AppUser; onLogout: () => void; pendingFriends?: number }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const { data: users = [], isLoading } = useQuery({ queryKey: ["users"], queryFn: getUsers });
@@ -1300,68 +1488,141 @@ function UsersPage({ currentUser, onLogout }: { currentUser: AppUser; onLogout: 
     onError: (error) => toast.error(error.message),
   });
 
+  const roleMutation = useMutation({
+    mutationFn: async ({ id, role }: { id: string; role: Role }) => {
+      const response = await fetch(`/api/users/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.error ?? "Mise à jour impossible"));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      toast.success("Rôle mis à jour");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/users/${id}`, { method: "DELETE" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(body.error ?? "Suppression impossible"));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      toast.success("Utilisateur supprimé");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const roleStyle: Record<Role, string> = { admin: "bg-violet-100 text-violet-700", manager: "bg-blue-100 text-blue-700", user: "bg-slate-100 text-slate-700" };
 
   return (
-    <AppShell title="Utilisateurs" description="Gérez les membres et leurs droits d’accès." currentUser={currentUser} onLogout={onLogout}>
-      {currentUser.role === "admin" && (
-        <div className="mb-5 flex justify-end">
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger render={<Button><Plus />Créer un utilisateur</Button>} />
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nouvel utilisateur</DialogTitle>
-                <DialogDescription>Crée un compte Firebase Auth et son profil Firestore.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleSubmit((values) => mutation.mutate(values))} className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2"><Label>Prénom</Label><Input {...register("firstname")} />{errors.firstname && <p className="text-xs text-destructive">{errors.firstname.message}</p>}</div>
-                  <div className="space-y-2"><Label>Nom</Label><Input {...register("lastname")} />{errors.lastname && <p className="text-xs text-destructive">{errors.lastname.message}</p>}</div>
-                </div>
-                <div className="space-y-2"><Label>Email</Label><Input type="email" {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
-                <div className="space-y-2"><Label>Mot de passe temporaire</Label><Input type="password" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
-                <div className="space-y-2"><Label>Rôle</Label><Select defaultValue="user" onValueChange={(value) => setValue("role", value as Role)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="admin">Administrateur</SelectItem><SelectItem value="manager">Manager</SelectItem><SelectItem value="user">Utilisateur</SelectItem></SelectContent></Select></div>
-                <Button type="submit" className="w-full" disabled={mutation.isPending}>{mutation.isPending ? "Création…" : "Créer l’utilisateur"}</Button>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
-      )}
-      <Card><CardContent className="p-0">
-        {isLoading ? <div className="p-8 text-center text-sm text-muted-foreground">Chargement…</div> : (
-          <div className="divide-y">{users.map((user) => (
-            <div key={user.id} className="flex items-center gap-4 p-4 md:px-6">
-              <UserAvatar user={user} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{user.firstname} {user.lastname}{user.id === currentUser.id ? " (vous)" : ""}</p>
-                <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+    <AppShell title="Utilisateurs" description="Administration des comptes (visible uniquement pour les admins)." currentUser={currentUser} onLogout={onLogout} pendingFriends={pendingFriends}>
+      <div className="mb-5 flex justify-end">
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger render={<Button className="rounded-xl"><Plus />Créer un utilisateur</Button>} />
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Nouvel utilisateur</DialogTitle>
+              <DialogDescription>Crée un compte Firebase Auth et son profil Firestore.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleSubmit((values) => mutation.mutate(values))} className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2"><Label>Prénom</Label><Input {...register("firstname")} />{errors.firstname && <p className="text-xs text-destructive">{errors.firstname.message}</p>}</div>
+                <div className="space-y-2"><Label>Nom</Label><Input {...register("lastname")} />{errors.lastname && <p className="text-xs text-destructive">{errors.lastname.message}</p>}</div>
               </div>
-              <Badge className={roleStyle[user.role]}>{roleLabel(user.role)}</Badge>
+              <div className="space-y-2"><Label>Email</Label><Input type="email" {...register("email")} />{errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}</div>
+              <div className="space-y-2"><Label>Mot de passe temporaire</Label><Input type="password" {...register("password")} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
+              <div className="space-y-2"><Label>Rôle</Label><Select defaultValue="user" onValueChange={(value) => setValue("role", value as Role)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="admin">Administrateur</SelectItem><SelectItem value="manager">Manager</SelectItem><SelectItem value="user">Utilisateur</SelectItem></SelectContent></Select></div>
+              <Button type="submit" className="w-full rounded-xl" disabled={mutation.isPending}>{mutation.isPending ? "Création…" : "Créer l’utilisateur"}</Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="space-y-3 p-6">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
             </div>
-          ))}</div>
-        )}
-      </CardContent></Card>
+          ) : (
+            <div className="divide-y">
+              {users.map((user) => (
+                <div key={user.id} className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:px-6">
+                  <UserAvatar user={user} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{user.firstname} {user.lastname}{user.id === currentUser.id ? " (vous)" : ""}</p>
+                    <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                  </div>
+                  <Badge className={roleStyle[user.role]}>{roleLabel(user.role)}</Badge>
+                  {user.id !== currentUser.id && (
+                    <div className="flex flex-wrap gap-2">
+                      <Select
+                        value={user.role}
+                        onValueChange={(value) => roleMutation.mutate({ id: user.id, role: value as Role })}
+                      >
+                        <SelectTrigger className="w-36 rounded-xl"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="manager">Manager</SelectItem>
+                          <SelectItem value="user">User</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="rounded-xl text-destructive"
+                        onClick={() => {
+                          if (window.confirm(`Supprimer le compte de ${user.firstname} ${user.lastname} ?`)) {
+                            deleteMutation.mutate(user.id);
+                          }
+                        }}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </AppShell>
   );
 }
 
-function ProfilePage({ currentUser, onLogout }: { currentUser: AppUser; onLogout: () => void }) {
+function ProfilePage({ currentUser, onLogout, pendingFriends = 0 }: { currentUser: AppUser; onLogout: () => void; pendingFriends?: number }) {
   const queryClient = useQueryClient();
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
   const [preview, setPreview] = useState<string | null>(currentUser.avatar ?? null);
   const { register, handleSubmit, formState: { errors } } = useForm({
     defaultValues: { firstname: currentUser.firstname, lastname: currentUser.lastname },
   });
 
   useEffect(() => {
-    if (!avatarFile) {
-      setPreview(currentUser.avatar ?? null);
+    if (avatarFile) {
+      if (avatarFile.size > 2 * 1024 * 1024) {
+        toast.error("La photo ne doit pas dépasser 2 Mo");
+        setAvatarFile(null);
+        return;
+      }
+      const url = URL.createObjectURL(avatarFile);
+      setPreview(url);
+      setRemoveAvatar(false);
+      return () => URL.revokeObjectURL(url);
+    }
+    if (removeAvatar) {
+      setPreview(null);
       return;
     }
-    const url = URL.createObjectURL(avatarFile);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [avatarFile, currentUser.avatar]);
+    setPreview(currentUser.avatar ?? null);
+  }, [avatarFile, currentUser.avatar, removeAvatar]);
 
   const mutation = useMutation({
     mutationFn: async (values: { firstname: string; lastname: string }) => {
@@ -1369,6 +1630,7 @@ function ProfilePage({ currentUser, onLogout }: { currentUser: AppUser; onLogout
       body.append("firstname", values.firstname.trim());
       body.append("lastname", values.lastname.trim());
       if (avatarFile) body.append("avatar", avatarFile);
+      if (removeAvatar && !avatarFile) body.append("removeAvatar", "1");
       const response = await fetch("/api/me", { method: "PATCH", body });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Mise à jour impossible");
@@ -1377,13 +1639,14 @@ function ProfilePage({ currentUser, onLogout }: { currentUser: AppUser; onLogout
     onSuccess: (user) => {
       queryClient.setQueryData(["me"], user);
       setAvatarFile(null);
+      setRemoveAvatar(false);
       toast.success("Profil mis à jour");
     },
     onError: (error) => toast.error(error.message),
   });
 
   return (
-    <AppShell title="Mon profil" description="Identité, photo et informations personnelles." currentUser={currentUser} onLogout={onLogout}>
+    <AppShell title="Mon profil" description="Identité, photo et informations personnelles." currentUser={currentUser} onLogout={onLogout} pendingFriends={pendingFriends}>
       <Card className="max-w-2xl border-border/70 shadow-sm">
         <CardHeader>
           <CardTitle className="font-bold">Informations personnelles</CardTitle>
@@ -1408,19 +1671,34 @@ function ProfilePage({ currentUser, onLogout }: { currentUser: AppUser; onLogout
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   className="hidden"
-                  onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => {
+                    setAvatarFile(e.target.files?.[0] ?? null);
+                    setRemoveAvatar(false);
+                  }}
                 />
               </label>
               <div>
                 <p className="text-sm font-semibold">Photo de profil</p>
                 <p className="text-xs text-muted-foreground">JPG, PNG ou WebP · 2 Mo max</p>
+                {(preview || currentUser.avatar) && (
+                  <button
+                    type="button"
+                    className="mt-1 text-xs font-medium text-destructive"
+                    onClick={() => {
+                      setAvatarFile(null);
+                      setRemoveAvatar(true);
+                    }}
+                  >
+                    Retirer la photo
+                  </button>
+                )}
               </div>
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
-              <div className="space-y-2"><Label>Prénom</Label><Input className="h-11" {...register("firstname", { required: true })} />{errors.firstname && <p className="text-xs text-destructive">Prénom requis</p>}</div>
-              <div className="space-y-2"><Label>Nom</Label><Input className="h-11" {...register("lastname", { required: true })} />{errors.lastname && <p className="text-xs text-destructive">Nom requis</p>}</div>
+              <div className="space-y-2"><Label>Prénom</Label><Input className="h-11 rounded-xl" {...register("firstname", { required: true })} />{errors.firstname && <p className="text-xs text-destructive">Prénom requis</p>}</div>
+              <div className="space-y-2"><Label>Nom</Label><Input className="h-11 rounded-xl" {...register("lastname", { required: true })} />{errors.lastname && <p className="text-xs text-destructive">Nom requis</p>}</div>
             </div>
-            <div className="space-y-2"><Label>Email</Label><Input value={currentUser.email} disabled className="h-11" /></div>
+            <div className="space-y-2"><Label>Email</Label><Input value={currentUser.email} disabled className="h-11 rounded-xl" /></div>
             <Button type="submit" className="rounded-xl" disabled={mutation.isPending}>
               {mutation.isPending ? "Enregistrement…" : "Enregistrer"}
             </Button>
@@ -1431,9 +1709,9 @@ function ProfilePage({ currentUser, onLogout }: { currentUser: AppUser; onLogout
   );
 }
 
-function SettingsPage({ currentUser, onLogout }: { currentUser: AppUser; onLogout: () => void }) {
+function SettingsPage({ currentUser, onLogout, pendingFriends = 0 }: { currentUser: AppUser; onLogout: () => void; pendingFriends?: number }) {
   return (
-    <AppShell title="Paramètres" description="Configurez votre espace ProjectHub." currentUser={currentUser} onLogout={onLogout}>
+    <AppShell title="Paramètres" description="Configurez votre espace Hubmaster." currentUser={currentUser} onLogout={onLogout} pendingFriends={pendingFriends}>
       <Card className="max-w-2xl"><CardHeader><CardTitle>Préférences générales</CardTitle></CardHeader><CardContent className="space-y-5">
         <div className="space-y-2"><Label>Nom de l’espace</Label><Input defaultValue="Hubmaster" /></div>
         <div className="space-y-2"><Label>Langue</Label><Select defaultValue="fr"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fr">Français</SelectItem><SelectItem value="en">English</SelectItem></SelectContent></Select></div>
@@ -1466,11 +1744,22 @@ export function ProjectHubApp({ slug }: { slug: string[] }) {
   const { data: users = [] } = useQuery({
     queryKey: ["users"],
     queryFn: getUsers,
-    enabled: route !== "login" && route !== "signup" && !!currentUser && currentUser.role !== "user",
+    enabled: route !== "login" && route !== "signup" && !!currentUser && currentUser.role === "admin",
     retry: 1,
   });
+  const { data: friendsPayload } = useQuery({
+    queryKey: ["friends"],
+    queryFn: async () => {
+      const response = await fetch("/api/friends", { cache: "no-store" });
+      if (!response.ok) return { pendingIncoming: [] as { id: string }[] };
+      return response.json();
+    },
+    enabled: route !== "login" && route !== "signup" && !!currentUser,
+    refetchInterval: 10000,
+  });
+  const pendingFriends = friendsPayload?.pendingIncoming?.length ?? 0;
   const project = useMemo(
-    () => (route.startsWith("projects/") ? projects.find((item) => item.id === slug[1]) : undefined),
+    () => (route.startsWith("projects/") && slug[1] !== "new" ? projects.find((item) => item.id === slug[1]) : undefined),
     [projects, route, slug],
   );
 
@@ -1495,7 +1784,7 @@ export function ProjectHubApp({ slug }: { slug: string[] }) {
   if (route === "signup") return <SignupPage />;
 
   if (userLoading) {
-    return <AppLoading label="Chargement de votre espace…" />;
+    return <AppLoading label="Chargement de votre espace…" step="Vérification de la session" />;
   }
 
   if (userError || !currentUser) {
@@ -1524,15 +1813,63 @@ export function ProjectHubApp({ slug }: { slug: string[] }) {
   }
 
   if (projectsLoading) {
-    return <AppLoading label="Chargement de vos projets…" />;
+    return <AppLoading label="Chargement de vos projets…" step="Récupération des espaces" />;
   }
 
-  if (route === "dashboard") return <Dashboard projects={projects} currentUser={currentUser} usersCount={currentUser.role === "user" ? undefined : users.length} onLogout={handleLogout} />;
-  if (route === "projects") return <ProjectsPage projects={projects} currentUser={currentUser} onLogout={handleLogout} />;
-  if (route === "projects/new") return <NewProjectPage currentUser={currentUser} onLogout={handleLogout} />;
-  if (route.startsWith("projects/")) return <ProjectDetail project={project} currentUser={currentUser} onLogout={handleLogout} />;
-  if (route === "users") return currentUser.role === "user" ? <Dashboard projects={projects} currentUser={currentUser} onLogout={handleLogout} /> : <UsersPage currentUser={currentUser} onLogout={handleLogout} />;
-  if (route === "profile") return <ProfilePage currentUser={currentUser} onLogout={handleLogout} />;
-  if (route === "settings") return <SettingsPage currentUser={currentUser} onLogout={handleLogout} />;
-  return <Dashboard projects={projects} currentUser={currentUser} usersCount={currentUser.role === "user" ? undefined : users.length} onLogout={handleLogout} />;
+  if (route === "dashboard") {
+    return (
+      <Dashboard
+        projects={projects}
+        currentUser={currentUser}
+        usersCount={currentUser.role === "admin" ? users.length : undefined}
+        onLogout={handleLogout}
+        pendingFriends={pendingFriends}
+      />
+    );
+  }
+  if (route === "projects") {
+    return <ProjectsPage projects={projects} currentUser={currentUser} onLogout={handleLogout} pendingFriends={pendingFriends} />;
+  }
+  if (route === "projects/new") {
+    return <NewProjectPage currentUser={currentUser} onLogout={handleLogout} pendingFriends={pendingFriends} />;
+  }
+  if (route.startsWith("projects/")) {
+    return <ProjectDetail project={project} currentUser={currentUser} onLogout={handleLogout} pendingFriends={pendingFriends} />;
+  }
+  if (route === "network") {
+    return (
+      <AppShell title="Réseau" description="Annuaire, amis et demandes" currentUser={currentUser} onLogout={handleLogout} pendingFriends={pendingFriends}>
+        <NetworkContent currentUser={currentUser} />
+      </AppShell>
+    );
+  }
+  if (route === "messages" || route.startsWith("messages/")) {
+    return (
+      <AppShell title="Messages" description="Discussions privées entre amis" currentUser={currentUser} onLogout={handleLogout} pendingFriends={pendingFriends}>
+        <MessagesContent currentUser={currentUser} conversationId={slug[1]} />
+      </AppShell>
+    );
+  }
+  if (route === "users") {
+    return currentUser.role === "admin" ? (
+      <UsersPage currentUser={currentUser} onLogout={handleLogout} pendingFriends={pendingFriends} />
+    ) : (
+      <Dashboard projects={projects} currentUser={currentUser} onLogout={handleLogout} pendingFriends={pendingFriends} />
+    );
+  }
+  if (route === "profile") {
+    return <ProfilePage currentUser={currentUser} onLogout={handleLogout} pendingFriends={pendingFriends} />;
+  }
+  if (route === "settings") {
+    return <SettingsPage currentUser={currentUser} onLogout={handleLogout} pendingFriends={pendingFriends} />;
+  }
+  return (
+    <Dashboard
+      projects={projects}
+      currentUser={currentUser}
+      usersCount={currentUser.role === "admin" ? users.length : undefined}
+      onLogout={handleLogout}
+      pendingFriends={pendingFriends}
+    />
+  );
 }
